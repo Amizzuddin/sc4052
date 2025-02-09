@@ -1,17 +1,14 @@
 {
-  "dockerComposeFile": "../ContainerCompose.yaml",
-  "service": "development",
+  "dockerComposeFile": "../composes/container_compose.yml",
+  "service": "generic",
+  "runServices": ["generic"],
   "remoteUser": "root",
-  "workspaceFolder": "/root/repository_name/src",
-  // "initializeCommand": ".devcontainer/initialize_command.sh",
+  "workspaceFolder": "/root/${localWorkspaceFolderBasename}",
+  "initializeCommand": "./run init dev",
   // "postStartCommand": ".devcontainer/post_start_command.sh",
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-vscode.cpptools",
-        "ms-vscode.cmake-tools",
-        "ms-vscode.cpptools-extension-pack",
-        "ms-python.python",
         "visualstudioexptteam.vscodeintellicode",
         "yzhang.markdown-all-in-one"
       ]

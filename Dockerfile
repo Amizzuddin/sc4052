@@ -1,9 +1,9 @@
-ARG REPOSITORY_NAME
+ARG REPOSITORY
 ARG ROOT_DIRECTORY=/root
-ARG WORKSPACE=${ROOT_DIRECTORY}/${REPOSITORY_NAME}
+ARG WORKSPACE=${ROOT_DIRECTORY}/${REPOSITORY}
 ARG DISTRO=humble
 ############################################### BASE IMAGE ###############################################
-FROM ubuntu:22.04 as BASE
+FROM ubuntu:22.04 AS base
 
 SHELL ["/bin/bash", "-c"]
 
@@ -17,14 +17,18 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
 RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     --mount=target=/var/cache/apt,type=cache,id=apt \
     apt-get install -y --no-install-recommends \
-    wget
+    wget \
+    git
 
 # Copy Workspace into the container
 # COPY workspace /root/workspace
 
+# Add Git autocompletion
+RUN echo "source /usr/share/bash-completion/completions/git" >> ~/.bashrc
+
 ############################################### PRODUCTION IMAGE ###############################################
-FROM BASE as PROD
-ARG REPOSITORY_NAME
+FROM base AS prod
+ARG REPOSITORY
 ARG ROOT_DIRECTORY
 ARG WORKSPACE
 ARG DISTRO
@@ -32,14 +36,18 @@ ARG DISTRO
 # Add the build and remove source files
 
 ############################################### DEVELOPMENT IMAGE ###############################################
-FROM BASE AS DEV
-ARG REPOSITORY_NAME
+FROM base AS dev
+ARG REPOSITORY
 ARG ROOT_DIRECTORY
 ARG WORKSPACE
 ARG DISTRO
 
 # additional thing needed but should not be in production
 
+RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
+    --mount=target=/var/cache/apt,type=cache,id=apt \
+    apt-get install -y --no-install-recommends \
+    ssh
 
 # Set this for podman devcontainer mounting source code folder from host
 # otherwise there is warning dubious ownership

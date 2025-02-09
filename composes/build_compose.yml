@@ -1,0 +1,10 @@
+services:
+
+  construction:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: ${TARGET}
+      args:
+        IMAGE: ${IMAGE}
+    image: ${REGISTRY_IMAGE}

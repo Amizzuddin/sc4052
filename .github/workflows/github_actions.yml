@@ -1,0 +1,70 @@
+name: Continuos Integration and Continuos Deployment (CI/CD)
+on:
+  push:
+    branches:
+      - main
+  # pull_request:
+  #   branches:
+  #     - '**'
+  #     - '!main'
+  workflow_run:
+    workflows: 
+      - Build
+    types: 
+      - completed
+
+jobs:
+
+  coverage_pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current branch repository
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/initialize
+
+      # Composite actions cannot access `secrets`
+      - name: Login to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: amizzuddin
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: BUILD DEVELOPMENT Image
+        run: ./run build dev
+
+      # - name: TEST DEVELOPMENT Image (WHITELIST TEST)
+      #   run: ./run test dev
+
+      # - name: Append Unit test Coverage Report to GITHUB Step Summary
+      #   run: cat unit_test_coverage.md >> $GITHUB_STEP_SUMMARY
+
+      - name: PUSH DEVELOPMENT Image to Registry
+        run: ./run push dev
+
+  integration_pipeline:
+    runs-on: ubuntu-latest
+    if: ${{ always() && contains(join(needs.*.result, ','), 'success') }}
+    needs: coverage_pipeline
+    steps:
+      - name: Checkout current branch repository
+        uses: actions/checkout@v4
+
+      - uses: ./.github/actions/initialize
+
+      # Composite actions cannot access `secrets`
+      - name: Login to Docker Hub
+        uses: docker/login-action@v1
+        with:
+          username: amizzuddin
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: BUILD PRODUCTION Image
+        run: ./run build prod
+      
+      # - name: TEST PRODUCTION Image
+      #   run: ./run test prod
+
+      - name: PUSH PRODUCTION Image to Registry
+        run: ./run push prod

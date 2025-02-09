@@ -1,0 +1,211 @@
+#!/bin/bash
+
+# ADD dependency scripts
+. scripts/script_log_color.sh
+
+# GLOBAL variables
+REGISTRY="docker.io/amizzuddin"
+COMPOSES_DIRECTORY="composes"
+COMMAND_OUTPUT_FILE="command_output.log"
+
+#TODO: Scirpt to be the entry point to 
+# 1) Clone submodules (if any)
+
+get_image_and_tag_name(){
+    VERSION=$(get_latest_version_id)
+    REPOSITORY=$(basename -s .git `git config --get remote.origin.url`)
+    if [ $TARGET == "PROD" ]; then
+        IMAGE=$REPOSITORY
+    else
+        IMAGE_TARGET=${TARGET,,} # lowecase
+        IMAGE="${REPOSITORY}_${IMAGE_TARGET}"
+    fi
+    IMAGE_TAG="${IMAGE}:${VERSION}"
+    REGISTRY_IMAGE="${REGISTRY}/${IMAGE_TAG}"
+}
+
+get_latest_version_id(){
+    VERSION_FILE=VERSION
+
+    if [ ! -f "$VERSION_FILE" ]; then
+        echo "VERSION FILE NOT FOUND!!!!"
+        exit
+    fi
+
+    local LATEST_VERSION_LOG="UNKNOWN"
+    read -r LATEST_VERSION_LOG<$VERSION_FILE
+    echo "Latest log from VERSION file: $LATEST_VERSION_LOG" >&2 # Print messager to stderr
+    
+    VERSION_ID=$(echo $LATEST_VERSION_LOG | cut -d' ' -f1)
+    echo $VERSION_ID
+}
+
+print_help() {
+    echo -e "\nUsage:"
+    echo -e "  $1 ${YELLOW}[command] [target]${NO_COLOR}\n"
+    echo -e "Available ${YELLOW}[command]${NO_COLOR}:"
+    echo -e "  ${CYAN}init${NO_COLOR}     Generate files required for development/deployment"
+    echo -e "  ${CYAN}build${NO_COLOR}    Build container image"
+    echo -e "  ${CYAN}push${NO_COLOR}     Push to registry"
+    echo -e "  ${CYAN}pull${NO_COLOR}     Pull from registry"
+    echo -e "Available ${YELLOW}[target]${NO_COLOR}"
+    echo -e "  ${CYAN}dev${NO_COLOR}      Devcontainer"
+    echo -e "  ${CYAN}prod${NO_COLOR}     Production"
+    exit 1
+}
+
+check_argument() {
+    RUN=$1
+    COMMAND=${2^^} # Convert to uppercase
+    TARGET=${3^^} # Convert to uppercase
+    check_command
+}
+
+check_command() {
+    if [ -z ${COMMAND} ]; then
+        echo -e "${RED}ERROR! Please specify 'command'${NO_COLOR}"
+        print_help $RUN
+    fi
+
+    if [ -z ${TARGET} ]; then
+        echo -e "${RED}ERROR! Please specify 'target'${NO_COLOR}"
+        print_help $RUN
+    fi
+    if [[ ! ${TARGET} =~ ^(DEV|PROD)$ ]]; then
+        echo -e "${RED}ERROR! Unknown 'target'${NO_COLOR}"
+        print_help $RUN
+    fi
+
+    
+    case $COMMAND in
+        INIT)
+            COMMAND_FUNCTION=""
+            # COMMAND_FUNCTION="init_command"
+            # To ensure `execute_command()` does not process `init_command`
+            # since all commands requires to invoke `init_command`
+            ;;
+        BUILD)
+            COMMAND_FUNCTION="build_command"
+            ;;
+        PUSH)
+            COMMAND_FUNCTION="push_command"
+            ;;
+        PULL)
+            COMMAND_FUNCTION="pull_command"
+            ;;
+        *)
+            print_help $RUN
+            ;;
+    esac
+
+    # initialize workspace only when COMMAND and TARGET is valid
+    init_command
+}
+
+execute_command(){
+    # Exit when command is empty, example `init_command` has COMMAND_CUNTION=""
+    if [ -z ${COMMAND_FUNCTION} ]; then
+        exit
+    fi
+    $func $COMMAND_FUNCTION
+}
+
+init_command(){
+    echo -e "Initialized workspace for development"
+    get_image_and_tag_name
+    generate_env_file
+    echo -e "${GREEN}Initialized workspace completed${NO_COLOR}"
+}
+
+generate_env_file(){
+    echo -e "Generate .env file at '${COMPOSES_DIRECTORY}' directory"
+    touch ${COMPOSES_DIRECTORY}/.env
+
+    declare -A ENVIRONMENTS_VARIABLES
+    ENVIRONMENTS_VARIABLES["TARGET"]=${TARGET}
+    ENVIRONMENTS_VARIABLES["REPOSITORY"]=${REPOSITORY}
+    ENVIRONMENTS_VARIABLES["REGISTRY"]=${REGISTRY}
+    ENVIRONMENTS_VARIABLES["TAG"]=${VERSION}
+    ENVIRONMENTS_VARIABLES["IMAGE"]=${IMAGE}
+    ENVIRONMENTS_VARIABLES["IMAGE_TAG"]=${IMAGE_TAG}
+    ENVIRONMENTS_VARIABLES["REGISTRY_IMAGE"]=${REGISTRY_IMAGE}
+
+    local LOOP_COUNTER=0
+    for KEY in "${!ENVIRONMENTS_VARIABLES[@]}";
+    do
+        if [ $LOOP_COUNTER -eq 0 ]; then
+            # Ensure contents in ${COMPOSES}/.env is overwritten
+            echo "export ${KEY}=${ENVIRONMENTS_VARIABLES[$KEY]}" > $COMPOSES_DIRECTORY/.env
+        else
+            echo "export ${KEY}=${ENVIRONMENTS_VARIABLES[$KEY]}" >> $COMPOSES_DIRECTORY/.env
+        fi
+
+        if [  $? -ne 0 ]; then
+            echo -e "${RED}Error overwriting environment '$KEY:${OVERWRITE_ENVIRONMENTS[$KEY]}'${NO_COLOR}"
+            exit 1
+        fi
+        ((LOOP_COUNTER++))
+    done
+}
+
+build_command() {
+    local BUILD_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml build construction"
+    execute_and_validate_docker_compose_command $BUILD_COMMAND
+}
+
+docker_login(){
+    # Login via docker desktop for wsl2, Needed testing for linux machine
+    echo -e "${BLUE}Attempt to login to Docker Registry${NO_COLOR}"
+    docker login --username $DOCKER_USER --password-stdin $DOCKER_USER_TOKEN
+    echo -e "${GREEN}Login Successful${NO_COLOR}"
+}
+
+push_command() {
+    # docker_login # Not required as specified in `docker_login()`
+    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push"
+    execute_and_validate_docker_compose_command $PUSH_COMMAND
+}
+
+pull_command() {
+    local PULL_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml pull"
+    execute_and_validate_docker_compose_command $PULL_COMMAND
+
+    # Tagging to remove the registry ip address prefix
+    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG} && docker rmi ${REGISTRY_IMAGE}
+    if [  $? -ne 0 ]; then
+        echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
+    fi
+}
+
+execute_and_validate_docker_compose_command(){
+    local DOCKER_COMPOSE_COMMAND=$@
+
+    echo -e "Executing '${DOCKER_COMPOSE_COMMAND}'"
+    # Execute compose command and write to a temp file
+    eval $DOCKER_COMPOSE_COMMAND #>&1 | tee $COMMAND_OUTPUT_FILE
+
+    ## START [Applicable for podman]
+    # Read the last line of the output file
+    # local LAST_READLINE=$(tail -n 1 $COMMAND_OUTPUT_FILE)
+    # local UPPERCASE_READLINE=${LAST_READLINE^^}
+
+    # Extract the code after the `exit code:` string, if can't find `exit code:` string, will return empty
+    # local STATUS_CODE=$(echo "$LAST_READLINE" | grep -oP "exit code:\s*\K\d+")
+
+    # if [[ -n "$STATUS_CODE" && $STATUS_CODE -ne 0 ]] || [[ "${UPPERCASE_READLINE}" == *"ERROR"* ]]; then
+    #     echo -e "${RED}Failed to execute the command '${COMMAND}' for '${IMAGE}' image${NO_COLOR}"
+    #     exit 1
+    # fi
+    ## END
+
+    if [ $? != 0 ]; then
+        echo -e "${RED}Failed to execute the command '${DOCKER_COMPOSE_COMMAND}' for '${IMAGE}' image${NO_COLOR}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}${COMMAND}ing completed successfully!${NO_COLOR}"
+}
+
+
+check_argument $0 $1 $2
+execute_command
