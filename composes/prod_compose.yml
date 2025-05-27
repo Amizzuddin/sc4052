@@ -1,6 +1,6 @@
 services:
   testing:
-    container_name: ${IMAGE}_test
+    container_name: ${IMAGE}
     image: ${IMAGE_TAG}
     working_dir: /root/${REPOSITORY}
     network_mode: "host"
@@ -15,5 +15,3 @@ services:
       - ALL
     environment:
       DISPLAY: $DISPLAY
-    volumes:
-      - ..:/root/${REPOSITORY}

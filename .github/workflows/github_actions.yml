@@ -4,7 +4,7 @@
 #  Author:        Amizzuddin Amin Chan
 #  Description:   <<ADD Description>>
 #  ---------------------------------------------------------------------------
-#  Last Modified: Tuesday May 27th 2025 6:28:59 am
+#  Last Modified: Tuesday May 27th 2025 9:45:47 am
 #  Modified By:   Amizzuddin Amin Chan
 #  ---------------------------------------------------------------------------
 #  HISTORY:
@@ -56,17 +56,15 @@ jobs:
           username: amizzuddin
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: BUILD DEVELOPMENT Image
-        run: ./run build dev
+      - name: BUILD and PUSH DEVELOPMENT Image to Registry
+        run: |
+          ./run build dev
+          ./run push dev
 
-      - name: TEST DEVELOPMENT Image (WHITELIST TEST)
-        run: ./run test dev
-
-      - name: Append Unit test Coverage Report to GITHUB Step Summary
-        run: cat unit_test_coverage.md >> $GITHUB_STEP_SUMMARY
-
-      - name: PUSH DEVELOPMENT Image to Registry
-        run: ./run push dev
+      - name: TEST DEVELOPMENT Image
+        run: |
+          ./run test dev
+          cat reports/test_coverage.md >> $GITHUB_STEP_SUMMARY
 
   integration_pipeline:
     runs-on: ubuntu-latest

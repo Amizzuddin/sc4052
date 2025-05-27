@@ -1,12 +1,13 @@
 ARG REPOSITORY
 ARG ROOT_DIRECTORY=/root
 ARG WORKSPACE=${ROOT_DIRECTORY}/${REPOSITORY}
-ARG DISTRO=humble
 ############################################### BASE IMAGE ###############################################
 FROM ubuntu:22.04 AS base
 
-ARG REPOSITORY
 ARG WORKSPACE
+ARG REPOSITORY
+
+ENV PROJECT=${REPOSITORY}
 ENV PYTHONPATH=${WORKSPACE}
 
 SHELL ["/bin/bash", "-c"]
@@ -35,16 +36,13 @@ FROM base AS prod
 ARG REPOSITORY
 ARG ROOT_DIRECTORY
 ARG WORKSPACE
-ARG DISTRO
 
 # Add the build and remove source files
 
 ############################################### DEVELOPMENT IMAGE ###############################################
 FROM base AS dev
-ARG REPOSITORY
-ARG ROOT_DIRECTORY
+
 ARG WORKSPACE
-ARG DISTRO
 
 # additional thing needed but should not be in production
 
@@ -56,7 +54,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
 
 # Install development python packages
 COPY .devcontainer/requirements.txt .
-RUN --mount=type=cache,id=pip,target=/root/.cache/amr_integration_test \
+RUN --mount=type=cache,id=pip,target=/root/.cache \
     python3 -m pip install --upgrade -r requirements.txt
 
 # Set this for podman devcontainer mounting source code folder from host

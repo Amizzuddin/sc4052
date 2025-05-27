@@ -18,18 +18,29 @@ services:
     volumes:
       - ..:/root/${REPOSITORY}
     entrypoint:
-      - coverage
-      - run
-      - -m
-      - pytest
-      - /root/${REPOSITORY}/workspace/tests
-      - -vs
-      - "&&"
-      - coverage
-      - report
-      - --format=markdown
-      - ">"
-      - unit_test_coverage.md
-      - pytest
-      - -vsl
-      - /root/${REPOSITORY}/workspace/tests
+      - "/bin/bash"
+      - "-c"
+      - "scripts/coverage.sh"
+    # entrypoint:
+    #   - "/bin/bash"
+    #   - ""
+    #   - "coverage run -m pytest /root/${REPOSITORY}/workspace/tests -vs"
+    #   - "&&"
+    #   - "coverage report --show-missing --format=markdown > /root/${REPOSITORY}/reports/test_coverage.md"
+    # entrypoint:
+    #   - coverage
+    #   - run
+    #   - -m
+    #   - pytest
+    #   - /root/${REPOSITORY}/workspace/tests
+    #   - -vs
+    #   - '&&'
+    #   - coverage
+    #   - report
+    #   - --show-missing
+    #   - --format=markdown
+    #   - '>'
+    #   - /root/${REPOSITORY}/reports/test_coverage.md
+    # entrypoint:
+    #   - "coverage run -m pytest workspace/tests -vs &&"
+    #   - "coverage report --show-missing --format=markdown > reports/test_coverage.md"

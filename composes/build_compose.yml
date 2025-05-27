@@ -7,4 +7,5 @@ services:
       target: ${TARGET}
       args:
         IMAGE: ${IMAGE}
+        REPOSITORY: ${REPOSITORY}
     image: ${REGISTRY_IMAGE}

@@ -25,6 +25,14 @@ get_image_and_tag_name(){
     REGISTRY_IMAGE="${REGISTRY}/${IMAGE_TAG}"
 }
 
+get_compose_file_name(){
+    TEST_COMPOSE_FILE="prod_compose.yml"
+    if [ $TARGET = "DEV" ];
+    then
+        TEST_COMPOSE_FILE="coverage_compose.yml"
+    fi
+}
+
 get_latest_version_id(){
     VERSION_FILE=VERSION
 
@@ -122,6 +130,7 @@ execute_command(){
 init_command(){
     echo -e "Initialized workspace for development"
     get_image_and_tag_name
+    get_compose_file_name
     generate_env_file
     echo -e "${GREEN}Initialized workspace completed${NO_COLOR}"
 }
@@ -194,19 +203,13 @@ pull_command() {
 }
 
 test_command() {
-    if [ -z "$(docker images -q $IMAGE_TAG 2> /dev/null)" ];
+    if [ -z "$(docker images -q $REGISTRY_IMAGE 2> /dev/null)" ];
     then
-        echo -e "${ORANGE}Image $IMAGE_TAG not found${NO_COLOR}"
+        echo -e "${ORANGE}Image $REGISTRY_IMAGE not found${NO_COLOR}"
         pull_command
     fi
 
-    local TEST_COMPOSE_FILE="test_compose.yml"
-    if [ $TARGET = "DEV" ];
-    then
-        TEST_COMPOSE_FILE="coverage_compose.yml"
-    fi
-
-    local TEST_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/${TEST_COMPOSE_FILE} up -d"
+    local TEST_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/${TEST_COMPOSE_FILE} up"
     execute_and_validate_docker_compose_command $TEST_COMMAND
 }
 
@@ -215,12 +218,6 @@ terminate_command() {
     then
         echo -e "${ORANGE}No running container with image: '$IMAGE' not found${NO_COLOR}"
     else
-        local TEST_COMPOSE_FILE="test_compose.yml"
-        if [ $TARGET = "DEV" ];
-        then
-            TEST_COMPOSE_FILE="coverage_compose.yml"
-        fi
-
         local TERMINATE_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/${TEST_COMPOSE_FILE} down"
         execute_and_validate_docker_compose_command $TERMINATE_COMMAND
     fi

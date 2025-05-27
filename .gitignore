@@ -2,3 +2,6 @@
 *.log
 __pycache__
 .pytest_cache
+.coverage
+.mypy_cache
+test_coverage.md
