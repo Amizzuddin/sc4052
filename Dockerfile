@@ -1,3 +1,16 @@
+#  Filename:      devcontainer_template/Dockerfile
+#  Project:       Web Network Visualizer
+#  Created Date:  Sunday, February 2nd 2025, 1:26:25 pm
+#  Author:        Amizzuddin Amin Chan
+#  Description:   <<ADD Description>>
+#  ---------------------------------------------------------------------------
+#  Last Modified: Tuesday May 27th 2025 4:10:08 am
+#  Modified By:   Amizzuddin Amin Chan
+#  ---------------------------------------------------------------------------
+#  HISTORY:
+#  Date         By    Comments
+#  ----------   ---   --------------------------------------------------------
+
 ARG REPOSITORY
 ARG ROOT_DIRECTORY=/root
 ARG WORKSPACE=${ROOT_DIRECTORY}/${REPOSITORY}
@@ -18,7 +31,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     --mount=target=/var/cache/apt,type=cache,id=apt \
     apt-get install -y --no-install-recommends \
     wget \
-    git
+    python3-pip
 
 # Copy Workspace into the container
 # COPY workspace /root/workspace
@@ -47,7 +60,13 @@ ARG DISTRO
 RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     --mount=target=/var/cache/apt,type=cache,id=apt \
     apt-get install -y --no-install-recommends \
-    ssh
+    ssh \
+    git
+
+# Install development python packages
+COPY .devcontainer/requirements.txt .
+RUN --mount=type=cache,id=pip,target=/root/.cache/amr_integration_test \
+    python3 -m pip install --upgrade -r requirements.txt
 
 # Set this for podman devcontainer mounting source code folder from host
 # otherwise there is warning dubious ownership

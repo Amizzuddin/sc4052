@@ -1,4 +1,5 @@
 {
+    "terminal.integrated.scrollback": 10000,
     "files.associations": {
         "*compose.yml": "dockercompose"
     },
@@ -12,5 +13,102 @@
     ],
     "flake8.args": [
         "--line-length", "120"
-    ]
+    ],
+    "mypy-type-checker.args": ["--config-file=${workspaceFolder}/pyproject.toml"],
+    "pre-commit-helper.config": ".pre-commit-config.yaml",
+    "pre-commit-helper.runOnSave": "fixes",
+    // Info: https://github.com/davidquinn/psi-header?tab=readme-ov-file#global-options
+    "psi-header.config": {
+		"forceToTop": true,
+		"blankLinesAfter": 1,
+		"spacesBetweenYears": false,
+		"author": "Amizzuddin Amin Chan",
+		"initials": "AAC",
+		"overridePathSeparator": "/",
+	},
+	// Info: https://github.com/davidquinn/psi-header?tab=readme-ov-file#changes-tracking-configuration
+	"psi-header.changes-tracking": {
+		"isActive": true,
+		"modDateFormat": "dd/MM/yyyy hh:nn:ss",
+		"include": [],
+		"includeGlob": [],
+		"exclude": ["markdown", "json", "jsonc", "shellscript", "yaml"],
+		"excludeGlob": ["./**/*/ignoreme.*", "**/.gitignore", "**/__init__.py", "**/*.txt", "**/*_compose.yml", "**/pyproject.toml", "**/.env"],
+		"autoHeader": "autoSave",
+		"enforceHeader": true,
+		"replace": [
+			"Filename:"
+		],
+		"updateLicenseVariables": false
+	},
+	// Info: https://github.com/davidquinn/psi-header?tab=readme-ov-file#templates
+    "psi-header.variables": [
+		["project", "Web Network Visualizer"],
+        ["mod_author", "Amizzuddin Amin Chan"],
+		["mod_author_initials", "AAC"]
+	],
+	// Info: https://github.com/davidquinn/psi-header?tab=readme-ov-file#language-configuration
+    "psi-header.lang-config": [
+		{
+			"language": "*",
+            "prefix": "#  ",
+			"lineLength": 80,
+			"forceToTop": true,
+			"blankLinesAfter": 1,
+			"beforeHeader": [],
+			"afterHeader": [],
+			"modDateFormat": "dd/MM/yyyy hh:nn:ss",
+			"replace": [
+				"Filename:"
+			],
+			"ignoreLines": [
+				"Description:"
+			]
+		},
+		{
+			"language": "python",
+            "begin": "################################################################################",
+            "prefix": "#  ",
+			"suffix": " #",
+			"end": "################################################################################",
+		},
+		{
+			"language": "html",
+            "prefix": " * ",
+			"suffix": " *"
+		},
+		{
+			"language": "css",
+			"begin": "/*",
+            "prefix": " * ",
+			"suffix": " *",
+			"end": "*/"
+		}
+    ],
+    // Info: https://github.com/davidquinn/psi-header?tab=readme-ov-file#templates
+    "psi-header.templates": [
+		{
+			"language": "*DEFAULTS*",
+			"template": [
+				"Filename:      <<projectname>>/<<filename>>",
+				"Project:       <<project>>",
+				"Created Date:  <<filecreated('dddd, MMMM Do YYYY, h:mm:ss a')>>",
+				"Author:        <<author>>",
+				"Description:   <<ADD Description>>",
+				"---------------------------------------------------------------------------",
+				"Last Modified: <<dateformat('dddd MMMM Do YYYY h:mm:ss a')>>",
+				"Modified By:   <<mod_author>>",
+				"---------------------------------------------------------------------------",
+				"HISTORY:",
+				"Date         By    Comments",
+				"----------   ---   --------------------------------------------------------"
+			],
+			"changeLogCaption": "HISTORY:",
+			"changeLogHeaderLineCount": 2,
+			"changeLogEntryTemplate": [
+				"<<dateformat('YYYY-MM-DD')>>   <<mod_author_initials>>    <<ADD COMMENTS>>"
+			],
+            "changeLogNaturalOrder": true,
+		}
+    ],
 }

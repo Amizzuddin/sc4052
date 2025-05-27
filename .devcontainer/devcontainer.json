@@ -1,16 +1,22 @@
 {
-  "dockerComposeFile": "../composes/container_compose.yml",
-  "service": "generic",
-  "runServices": ["generic"],
+  "dockerComposeFile": "../composes/dev_compose.yml",
+  "service": "development",
+  "runServices": ["development"],
   "remoteUser": "root",
   "workspaceFolder": "/root/${localWorkspaceFolderBasename}",
   "initializeCommand": "./run init dev",
-  // "postStartCommand": ".devcontainer/post_start_command.sh",
+  "postStartCommand": ".devcontainer/post_start_command.sh",
+  "containerEnv": {
+    "SHELL": "/bin/bash"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
         "visualstudioexptteam.vscodeintellicode",
-        "yzhang.markdown-all-in-one"
+        "yzhang.markdown-all-in-one",
+        "esbenp.prettier-vscode",
+        "elagil.pre-commit-helper",
+        "psioniq.psi-header"
       ]
     }
   }

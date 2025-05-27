@@ -21,6 +21,7 @@ get_image_and_tag_name(){
         IMAGE="${REPOSITORY}_${IMAGE_TARGET}"
     fi
     IMAGE_TAG="${IMAGE}:${VERSION}"
+    IMAGE_TAG_LOCAL="${IMAGE}:local_latest"
     REGISTRY_IMAGE="${REGISTRY}/${IMAGE_TAG}"
 }
 
@@ -44,10 +45,12 @@ print_help() {
     echo -e "\nUsage:"
     echo -e "  $1 ${YELLOW}[command] [target]${NO_COLOR}\n"
     echo -e "Available ${YELLOW}[command]${NO_COLOR}:"
-    echo -e "  ${CYAN}init${NO_COLOR}     Generate files required for development/deployment"
-    echo -e "  ${CYAN}build${NO_COLOR}    Build container image"
-    echo -e "  ${CYAN}push${NO_COLOR}     Push to registry"
-    echo -e "  ${CYAN}pull${NO_COLOR}     Pull from registry"
+    echo -e "  ${CYAN}init${NO_COLOR}       Generate files required for development/deployment"
+    echo -e "  ${CYAN}build${NO_COLOR}      Build container image"
+    echo -e "  ${CYAN}push${NO_COLOR}       Push to registry"
+    echo -e "  ${CYAN}pull${NO_COLOR}       Pull from registry"
+    echo -e "  ${CYAN}test${NO_COLOR}       Test Pull/Build image"
+    echo -e "  ${CYAN}terminate${NO_COLOR}  Terminate running test image"
     echo -e "Available ${YELLOW}[target]${NO_COLOR}"
     echo -e "  ${CYAN}dev${NO_COLOR}      Devcontainer"
     echo -e "  ${CYAN}prod${NO_COLOR}     Production"
@@ -93,6 +96,12 @@ check_command() {
         PULL)
             COMMAND_FUNCTION="pull_command"
             ;;
+        TEST)
+            COMMAND_FUNCTION="test_command"
+            ;;
+        TERMINATE)
+            COMMAND_FUNCTION="terminate_command"
+            ;;
         *)
             print_help $RUN
             ;;
@@ -128,6 +137,7 @@ generate_env_file(){
     ENVIRONMENTS_VARIABLES["TAG"]=${VERSION}
     ENVIRONMENTS_VARIABLES["IMAGE"]=${IMAGE}
     ENVIRONMENTS_VARIABLES["IMAGE_TAG"]=${IMAGE_TAG}
+    ENVIRONMENTS_VARIABLES["IMAGE_TAG_LOCAL"]=${IMAGE_TAG_LOCAL}
     ENVIRONMENTS_VARIABLES["REGISTRY_IMAGE"]=${REGISTRY_IMAGE}
 
     local LOOP_COUNTER=0
@@ -171,9 +181,36 @@ pull_command() {
     execute_and_validate_docker_compose_command $PULL_COMMAND
 
     # Tagging to remove the registry ip address prefix
-    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG} && docker rmi ${REGISTRY_IMAGE}
+    # docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG} && docker rmi ${REGISTRY_IMAGE}
+    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG}
     if [  $? -ne 0 ]; then
         echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
+    fi
+
+    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LOCAL}
+    if [  $? -ne 0 ]; then
+        echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
+    fi
+}
+
+test_command() {
+    if [ -z "$(docker images -q $IMAGE_TAG 2> /dev/null)" ];
+    then
+        echo -e "${ORANGE}Image $IMAGE_TAG not found${NO_COLOR}"
+        pull_command
+    fi
+
+    local TEST_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/test_compose.yml up -d"
+    execute_and_validate_docker_compose_command $TEST_COMMAND
+}
+
+terminate_command() {
+    if [ -z "$(docker ps -a --filter "name=${IMAGE}" --format "{{.Image}}" 2> /dev/null)" ];
+    then
+        echo -e "${ORANGE}No running container with image: '$IMAGE' not found${NO_COLOR}"
+    else
+        local TERMINATE_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/test_compose.yml down"
+        execute_and_validate_docker_compose_command $TERMINATE_COMMAND
     fi
 }
 
