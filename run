@@ -200,7 +200,13 @@ test_command() {
         pull_command
     fi
 
-    local TEST_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/test_compose.yml up -d"
+    local TEST_COMPOSE_FILE="test_compose.yml"
+    if [ $TARGET = "DEV" ];
+    then
+        TEST_COMPOSE_FILE="coverage_compose.yml"
+    fi
+
+    local TEST_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/${TEST_COMPOSE_FILE} up -d"
     execute_and_validate_docker_compose_command $TEST_COMMAND
 }
 
@@ -209,7 +215,13 @@ terminate_command() {
     then
         echo -e "${ORANGE}No running container with image: '$IMAGE' not found${NO_COLOR}"
     else
-        local TERMINATE_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/test_compose.yml down"
+        local TEST_COMPOSE_FILE="test_compose.yml"
+        if [ $TARGET = "DEV" ];
+        then
+            TEST_COMPOSE_FILE="coverage_compose.yml"
+        fi
+
+        local TERMINATE_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/${TEST_COMPOSE_FILE} down"
         execute_and_validate_docker_compose_command $TERMINATE_COMMAND
     fi
 }

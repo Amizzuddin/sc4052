@@ -6,6 +6,8 @@ ARG DISTRO=humble
 FROM ubuntu:22.04 AS base
 
 ARG REPOSITORY
+ARG WORKSPACE
+ENV PYTHONPATH=${WORKSPACE}
 
 SHELL ["/bin/bash", "-c"]
 
@@ -60,3 +62,5 @@ RUN --mount=type=cache,id=pip,target=/root/.cache/amr_integration_test \
 # Set this for podman devcontainer mounting source code folder from host
 # otherwise there is warning dubious ownership
 RUN git config --global --add safe.directory "*"
+
+WORKDIR ${WORKSPACE}

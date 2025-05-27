@@ -41,7 +41,8 @@
 			"**/*_compose.yml",
 			"**/pyproject.toml",
 			"**/.env",
-			"**/*Dockerfile"
+			"**/*Dockerfile",
+			"**/.flake8"
 		],
 		"autoHeader": "autoSave",
 		"enforceHeader": true,
@@ -120,4 +121,10 @@
             "changeLogNaturalOrder": true,
 		}
     ],
+	"python.testing.pytestArgs": [
+		"-vsl",
+		"workspace/tests"
+	],
+	"python.testing.unittestEnabled": false,
+	"python.testing.pytestEnabled": true
 }

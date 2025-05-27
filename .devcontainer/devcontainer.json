@@ -17,7 +17,13 @@
         "yzhang.markdown-all-in-one",
         "esbenp.prettier-vscode",
         "elagil.pre-commit-helper",
-        "psioniq.psi-header"
+        "psioniq.psi-header",
+        "rioj7.command-variable",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.black-formatter",
+        "ms-python.flake8",
+        "ms-python.mypy-type-checker"
       ]
     }
   }

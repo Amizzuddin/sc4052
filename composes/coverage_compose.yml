@@ -1,0 +1,35 @@
+services:
+  testing:
+    container_name: ${IMAGE}_coverage
+    image: ${IMAGE_TAG}
+    working_dir: /root/${REPOSITORY}
+    network_mode: "host"
+    privileged: true
+    stdin_open: true
+    ipc: host
+    devices:
+      - /dev:/dev
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - ALL
+    environment:
+      DISPLAY: $DISPLAY
+    volumes:
+      - ..:/root/${REPOSITORY}
+    entrypoint:
+      - coverage
+      - run
+      - -m
+      - pytest
+      - /root/${REPOSITORY}/workspace/tests
+      - -vs
+      - "&&"
+      - coverage
+      - report
+      - --format=markdown
+      - ">"
+      - unit_test_coverage.md
+      - pytest
+      - -vsl
+      - /root/${REPOSITORY}/workspace/tests

@@ -1,3 +1,16 @@
+#  Filename:      workflows/github_actions.yml
+#  Project:       Web Network Visualizer
+#  Created Date:  Sunday, February 2nd 2025, 2:26:14 pm
+#  Author:        Amizzuddin Amin Chan
+#  Description:   <<ADD Description>>
+#  ---------------------------------------------------------------------------
+#  Last Modified: Tuesday May 27th 2025 6:28:59 am
+#  Modified By:   Amizzuddin Amin Chan
+#  ---------------------------------------------------------------------------
+#  HISTORY:
+#  Date         By    Comments
+#  ----------   ---   --------------------------------------------------------
+
 name: Continuous Integration and Continuous Deployment (CI/CD)
 on:
   push:
@@ -46,11 +59,11 @@ jobs:
       - name: BUILD DEVELOPMENT Image
         run: ./run build dev
 
-      # - name: TEST DEVELOPMENT Image (WHITELIST TEST)
-      #   run: ./run test dev
+      - name: TEST DEVELOPMENT Image (WHITELIST TEST)
+        run: ./run test dev
 
-      # - name: Append Unit test Coverage Report to GITHUB Step Summary
-      #   run: cat unit_test_coverage.md >> $GITHUB_STEP_SUMMARY
+      - name: Append Unit test Coverage Report to GITHUB Step Summary
+        run: cat unit_test_coverage.md >> $GITHUB_STEP_SUMMARY
 
       - name: PUSH DEVELOPMENT Image to Registry
         run: ./run push dev
