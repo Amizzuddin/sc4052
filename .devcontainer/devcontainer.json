@@ -12,6 +12,7 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "GitHub.vscode-github-actions",
         "visualstudioexptteam.vscodeintellicode",
         "yzhang.markdown-all-in-one",
         "esbenp.prettier-vscode",
