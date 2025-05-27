@@ -1,22 +1,11 @@
-#  Filename:      devcontainer_template/Dockerfile
-#  Project:       Web Network Visualizer
-#  Created Date:  Sunday, February 2nd 2025, 1:26:25 pm
-#  Author:        Amizzuddin Amin Chan
-#  Description:   <<ADD Description>>
-#  ---------------------------------------------------------------------------
-#  Last Modified: Tuesday May 27th 2025 4:10:08 am
-#  Modified By:   Amizzuddin Amin Chan
-#  ---------------------------------------------------------------------------
-#  HISTORY:
-#  Date         By    Comments
-#  ----------   ---   --------------------------------------------------------
-
 ARG REPOSITORY
 ARG ROOT_DIRECTORY=/root
 ARG WORKSPACE=${ROOT_DIRECTORY}/${REPOSITORY}
 ARG DISTRO=humble
 ############################################### BASE IMAGE ###############################################
 FROM ubuntu:22.04 AS base
+
+ARG REPOSITORY
 
 SHELL ["/bin/bash", "-c"]
 

@@ -1,4 +1,4 @@
-name: Continuos Integration and Continuos Deployment (CI/CD)
+name: Continuous Integration and Continuous Deployment (CI/CD)
 on:
   push:
     branches:
@@ -8,9 +8,9 @@ on:
   #     - '**'
   #     - '!main'
   workflow_run:
-    workflows: 
+    workflows:
       - Build
-    types: 
+    types:
       - completed
 
 jobs:
@@ -74,7 +74,7 @@ jobs:
 
       - name: BUILD PRODUCTION Image
         run: ./run build prod
-      
+
       # - name: TEST PRODUCTION Image
       #   run: ./run test prod
 

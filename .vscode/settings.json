@@ -33,7 +33,16 @@
 		"include": [],
 		"includeGlob": [],
 		"exclude": ["markdown", "json", "jsonc", "shellscript", "yaml"],
-		"excludeGlob": ["./**/*/ignoreme.*", "**/.gitignore", "**/__init__.py", "**/*.txt", "**/*_compose.yml", "**/pyproject.toml", "**/.env"],
+		"excludeGlob": [
+			"./**/*/ignoreme.*",
+			"**/.gitignore",
+			"**/__init__.py",
+			"**/*.txt",
+			"**/*_compose.yml",
+			"**/pyproject.toml",
+			"**/.env",
+			"**/*Dockerfile"
+		],
 		"autoHeader": "autoSave",
 		"enforceHeader": true,
 		"replace": [

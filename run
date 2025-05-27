@@ -8,7 +8,7 @@ REGISTRY="docker.io/amizzuddin"
 COMPOSES_DIRECTORY="composes"
 COMMAND_OUTPUT_FILE="command_output.log"
 
-#TODO: Scirpt to be the entry point to 
+#TODO: Script to be the entry point to
 # 1) Clone submodules (if any)
 
 get_image_and_tag_name(){
@@ -17,7 +17,7 @@ get_image_and_tag_name(){
     if [ $TARGET == "PROD" ]; then
         IMAGE=$REPOSITORY
     else
-        IMAGE_TARGET=${TARGET,,} # lowecase
+        IMAGE_TARGET=${TARGET,,} # lowercase
         IMAGE="${REPOSITORY}_${IMAGE_TARGET}"
     fi
     IMAGE_TAG="${IMAGE}:${VERSION}"
@@ -36,7 +36,7 @@ get_latest_version_id(){
     local LATEST_VERSION_LOG="UNKNOWN"
     read -r LATEST_VERSION_LOG<$VERSION_FILE
     echo "Latest log from VERSION file: $LATEST_VERSION_LOG" >&2 # Print messager to stderr
-    
+
     VERSION_ID=$(echo $LATEST_VERSION_LOG | cut -d' ' -f1)
     echo $VERSION_ID
 }
@@ -79,7 +79,7 @@ check_command() {
         print_help $RUN
     fi
 
-    
+
     case $COMMAND in
         INIT)
             COMMAND_FUNCTION=""
