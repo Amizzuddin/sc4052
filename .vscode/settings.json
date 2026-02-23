@@ -53,7 +53,7 @@
 	},
 	// Info: https://github.com/davidquinn/psi-header?tab=readme-ov-file#templates
     "psi-header.variables": [
-		["project", "Web Network Visualizer"],
+		["project", "SC4079 Cloud Computing"],
         ["mod_author", "Amizzuddin Amin Chan"],
 		["mod_author_initials", "AAC"]
 	],

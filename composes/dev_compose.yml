@@ -15,6 +15,8 @@ services:
       - ALL
     environment:
       DISPLAY: $DISPLAY
+    ports:
+      - "8050:8050"
     volumes:
       - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates
       - /etc/ssl/certs:/etc/ssl/certs

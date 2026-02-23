@@ -170,6 +170,11 @@ generate_env_file(){
 build_command() {
     local BUILD_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml build construction"
     execute_and_validate_docker_compose_command $BUILD_COMMAND
+
+    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LOCAL}
+    if [  $? -ne 0 ]; then
+        echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
+    fi
 }
 
 docker_login(){

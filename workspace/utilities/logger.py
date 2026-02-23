@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Utility function for logging                                 #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday May 27th 2025 8:14:57 am                             #
+#  Last Modified: Saturday February 21st 2026 1:19:10 pm                       #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -43,6 +43,7 @@ class ElapsedFormatter(logging.Formatter):
 
     COLORS = {
         "DEBUG": LoggingColor.BLUE.value,
+        "INFO": LoggingColor.GREEN.value,
         "WARNING": LoggingColor.YELLOW.value,
         "ERROR": LoggingColor.RED.value,
         "CRITICAL": LoggingColor.RED.value,

@@ -25,6 +25,11 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     wget \
     python3-pip
 
+# Install development python packages
+COPY requirements.txt .
+RUN --mount=type=cache,id=pip,target=/root/.cache \
+    python3 -m pip install --upgrade -r requirements.txt
+
 # Copy Workspace into the container
 # COPY workspace /root/workspace
 

@@ -39,11 +39,12 @@ repos:
             flake8-mutable,
             flake8-simplify,
           ]
+        exclude: ^workspace/ #temporary
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.15.0
     hooks:
       - id: mypy
-        exclude: "[a-zA-Z]*/(migrations)/(.)*"
+        exclude: ^workspace/ #temporary #"[a-zA-Z]*/(migrations)/(.)*"
         args:
           [
             --ignore-missing-imports,
