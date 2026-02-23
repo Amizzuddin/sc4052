@@ -1,7 +1,7 @@
 services:
   development:
     container_name: ${IMAGE}
-    image: ${IMAGE_TAG_LOCAL}
+    image: ${IMAGE_TAG_LATEST}
     working_dir: /root/${REPOSITORY}
     network_mode: "host"
     privileged: true

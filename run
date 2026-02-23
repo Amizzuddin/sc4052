@@ -21,8 +21,9 @@ get_image_and_tag_name(){
         IMAGE="${REPOSITORY}_${IMAGE_TARGET}"
     fi
     IMAGE_TAG="${IMAGE}:${VERSION}"
-    IMAGE_TAG_LOCAL="${IMAGE}:local_latest"
+    IMAGE_TAG_LATEST="${IMAGE}:latest"
     REGISTRY_IMAGE="${REGISTRY}/${IMAGE_TAG}"
+    REGISTRY_IMAGE_LATEST="${REGISTRY}/${IMAGE_TAG_LATEST}"
 }
 
 get_compose_file_name(){
@@ -146,8 +147,9 @@ generate_env_file(){
     ENVIRONMENTS_VARIABLES["TAG"]=${VERSION}
     ENVIRONMENTS_VARIABLES["IMAGE"]=${IMAGE}
     ENVIRONMENTS_VARIABLES["IMAGE_TAG"]=${IMAGE_TAG}
-    ENVIRONMENTS_VARIABLES["IMAGE_TAG_LOCAL"]=${IMAGE_TAG_LOCAL}
+    ENVIRONMENTS_VARIABLES["IMAGE_TAG_LATEST"]=${IMAGE_TAG_LATEST}
     ENVIRONMENTS_VARIABLES["REGISTRY_IMAGE"]=${REGISTRY_IMAGE}
+    ENVIRONMENTS_VARIABLES["REGISTRY_IMAGE_LATEST"]=${REGISTRY_IMAGE_LATEST}
 
     local LOOP_COUNTER=0
     for KEY in "${!ENVIRONMENTS_VARIABLES[@]}";
@@ -171,7 +173,12 @@ build_command() {
     local BUILD_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml build construction"
     execute_and_validate_docker_compose_command $BUILD_COMMAND
 
-    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LOCAL}
+    docker tag ${REGISTRY_IMAGE} ${REGISTRY_IMAGE_LATEST}
+    if [  $? -ne 0 ]; then
+        echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
+    fi
+
+    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LATEST}
     if [  $? -ne 0 ]; then
         echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
     fi
@@ -185,8 +192,10 @@ docker_login(){
 }
 
 push_command() {
-    # docker_login # Not required as specified in `docker_login()`
-    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push"
+    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push construction"
+    execute_and_validate_docker_compose_command $PUSH_COMMAND
+
+    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push update_latest"
     execute_and_validate_docker_compose_command $PUSH_COMMAND
 }
 
@@ -201,7 +210,7 @@ pull_command() {
         echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
     fi
 
-    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LOCAL}
+    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LATEST}
     if [  $? -ne 0 ]; then
         echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
     fi

@@ -6,13 +6,13 @@
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter",
         "editor.formatOnSave": true,
-        "editor.rulers": [120]
+        "editor.rulers": [180]
     },
     "black-formatter.args": [
-        "--line-length", "120"
+        "--line-length", "180"
     ],
     "flake8.args": [
-        "--line-length", "120"
+        "--line-length", "180"
     ],
     "mypy-type-checker.args": ["--config-file=${workspaceFolder}/pyproject.toml"],
     "pre-commit-helper.config": ".pre-commit-config.yaml",

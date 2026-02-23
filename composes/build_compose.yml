@@ -1,6 +1,6 @@
 services:
 
-  construction:
+  construction: &construction
     build:
       context: ..
       dockerfile: Dockerfile
@@ -9,3 +9,7 @@ services:
         IMAGE: ${IMAGE}
         REPOSITORY: ${REPOSITORY}
     image: ${REGISTRY_IMAGE}
+
+  update_latest:
+    image: ${REGISTRY_IMAGE_LATEST}
+    <<: *construction

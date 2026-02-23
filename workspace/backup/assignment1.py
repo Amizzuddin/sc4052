@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday February 23rd 2026 6:42:29 am                         #
+#  Last Modified: Monday February 23rd 2026 6:20:46 am                         #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -111,7 +111,7 @@ def build_fat_tree(k: int, depth: int) -> tuple[list[dict], list[tuple[str, str]
 
     n_core = half_k * half_k
     total_hosts = n_pods * n_edge_per_pod * n_hosts_per_edge
-    total_w = total_hosts - 1
+    total_w = float(total_hosts - 1)
     for c in range(n_core):
         x = c * total_w / max(n_core - 1, 1)
         nodes.append({"id": f"core_{c}", "type": "core", "x": x, "y": 3.0})
@@ -137,35 +137,32 @@ def compute_stats(k: int, depth: int) -> dict[str, int]:
 
     if depth == 1:
         cables = k
-        result = {"hosts": k, "switches": 1, "cables": cables, "transmitters": cables * 2, "switch_txs": k}
+        return dict(hosts=k, switches=1, cables=cables, transmitters=cables * 2, switch_txs=k)
 
-    elif depth == 2:
+    if depth == 2:
         c_sw_sw = half_k * k
         c_edge_h = k * half_k
         cables = c_sw_sw + c_edge_h
-        result = {
-            "hosts": k * half_k,
-            "switches": half_k + k,
-            "cables": cables,
-            "transmitters": cables * 2,
-            "switch_txs": c_sw_sw * 2 + c_edge_h,
-        }
+        return dict(
+            hosts=k * half_k,
+            switches=half_k + k,
+            cables=cables,
+            transmitters=cables * 2,
+            switch_txs=c_sw_sw * 2 + c_edge_h,
+        )
 
-    else:
-        n_core = half_k * half_k
-        c_ca = n_core * k
-        c_ae = k * half_k * half_k
-        c_eh = k * half_k * half_k
-        cables = c_ca + c_ae + c_eh
-        result = {
-            "hosts": k**3 // 4,
-            "switches": n_core + k * half_k + k * half_k,
-            "cables": cables,
-            "transmitters": cables * 2,
-            "switch_txs": (c_ca + c_ae) * 2 + c_eh,
-        }
-
-    return result
+    n_core = half_k * half_k
+    c_ca = n_core * k
+    c_ae = k * half_k * half_k
+    c_eh = k * half_k * half_k
+    cables = c_ca + c_ae + c_eh
+    return dict(
+        hosts=k**3 // 4,
+        switches=n_core + k * half_k + k * half_k,
+        cables=cables,
+        transmitters=cables * 2,
+        switch_txs=(c_ca + c_ae) * 2 + c_eh,
+    )
 
 
 # ============================================================================
@@ -323,18 +320,18 @@ def make_figure(
             x0, x1 = pod * n_hpod - 0.5, (pod + 1) * n_hpod - 0.5
             fill = "rgba(255,255,255,0.025)" if pod % 2 == 0 else "rgba(200,220,255,0.055)"
             shapes.append(
-                {
-                    "type": "rect",
-                    "xref": "x",
-                    "yref": "paper",
-                    "x0": x0,
-                    "x1": x1,
-                    "y0": 0,
-                    "y1": 1,
-                    "fillcolor": fill,
-                    "line_width": 0,
-                    "layer": "below",
-                }
+                dict(
+                    type="rect",
+                    xref="x",
+                    yref="paper",
+                    x0=x0,
+                    x1=x1,
+                    y0=0,
+                    y1=1,
+                    fillcolor=fill,
+                    line_width=0,
+                    layer="below",
+                )
             )
 
     # ---- base edge trace (all cables, dimmed when paths visible) -----------
@@ -348,7 +345,7 @@ def make_figure(
         x=ex,
         y=ey,
         mode="lines",
-        line={"color": f"rgba(130,160,190,{0.10 if has_paths else 0.32})", "width": 0.7},
+        line=dict(color=f"rgba(130,160,190,{0.10 if has_paths else 0.32})", width=0.7),
         hoverinfo="none",
         showlegend=False,
         name="",
@@ -356,7 +353,7 @@ def make_figure(
 
     # ---- colored path edge traces (one per path) ---------------------------
     path_traces = []
-    for _i, (path, color) in enumerate(zip(paths, colors)):
+    for i, (path, color) in enumerate(zip(paths, colors)):
         px, py = [], []
         for j in range(len(path) - 1):
             n1, n2 = node_map[path[j]], node_map[path[j + 1]]
@@ -367,7 +364,7 @@ def make_figure(
                 x=px,
                 y=py,
                 mode="lines",
-                line={"color": color, "width": 2.6},
+                line=dict(color=color, width=2.6),
                 opacity=0.88,
                 hoverinfo="none",
                 showlegend=False,
@@ -430,13 +427,13 @@ def make_figure(
                 y=ys,
                 mode="markers",
                 name=NODE_LABELS[ntype],
-                marker={
-                    "color": mcolors,
-                    "size": msizes,
-                    "opacity": mopacities,
-                    "symbol": "circle",
-                    "line": {"color": border_colors, "width": border_widths},
-                },
+                marker=dict(
+                    color=mcolors,
+                    size=msizes,
+                    opacity=mopacities,
+                    symbol="circle",
+                    line=dict(color=border_colors, width=border_widths),
+                ),
                 text=texts,
                 hovertemplate="<b>%{text}</b><extra></extra>",
             )
@@ -445,20 +442,19 @@ def make_figure(
     # ---- selection pulse rings around selected hosts -----------------------
     pulse_traces = []
     for sel_id in selected:
-        temp_n = node_map.get(sel_id)
-        if temp_n:
-            n = temp_n
+        n = node_map.get(sel_id)
+        if n:
             pulse_traces.append(
                 go.Scatter(
                     x=[n["x"]],
                     y=[n["y"]],
                     mode="markers",
-                    marker={
-                        "color": "rgba(0,0,0,0)",
-                        "size": NODE_SIZES["host"] * 4.0,
-                        "symbol": "circle",
-                        "line": {"color": "rgba(255,224,130,0.55)", "width": 1.8},
-                    },
+                    marker=dict(
+                        color="rgba(0,0,0,0)",
+                        size=NODE_SIZES["host"] * 4.0,
+                        symbol="circle",
+                        line=dict(color="rgba(255,224,130,0.55)", width=1.8),
+                    ),
                     hoverinfo="none",
                     showlegend=False,
                     name="",
@@ -472,15 +468,15 @@ def make_figure(
 
     for y_val, label in LAYER_LABELS.get(depth, {}).items():
         annotations.append(
-            {
-                "x": left_x,
-                "y": float(y_val),
-                "text": f"<b>{label}</b>",
-                "showarrow": False,
-                "font": {"size": 11, "color": "#8ba3b8", "family": "'IBM Plex Mono', monospace"},
-                "xanchor": "right",
-                "yanchor": "middle",
-            }
+            dict(
+                x=left_x,
+                y=float(y_val),
+                text=f"<b>{label}</b>",
+                showarrow=False,
+                font=dict(size=11, color="#8ba3b8", family="'IBM Plex Mono', monospace"),
+                xanchor="right",
+                yanchor="middle",
+            )
         )
 
     if depth == 3:
@@ -489,36 +485,35 @@ def make_figure(
         for pod in range(k):
             cx = pod * n_hpod + (n_hpod - 1) / 2.0
             annotations.append(
-                {
-                    "x": cx,
-                    "y": -0.35,
-                    "text": f"Pod {pod}",
-                    "showarrow": False,
-                    "font": {"size": 9, "color": "rgba(160,180,210,0.55)", "family": "'IBM Plex Mono', monospace"},
-                    "xanchor": "center",
-                }
+                dict(
+                    x=cx,
+                    y=-0.35,
+                    text=f"Pod {pod}",
+                    showarrow=False,
+                    font=dict(size=9, color="rgba(160,180,210,0.55)", family="'IBM Plex Mono', monospace"),
+                    xanchor="center",
+                )
             )
 
     if len(selected) == 1:
-        temp_n = node_map.get(selected[0])
-        if temp_n:
-            n = temp_n
+        n = node_map.get(selected[0])
+        if n:
             annotations.append(
-                {
-                    "x": n["x"],
-                    "y": n["y"] + 0.28,
-                    "text": f"<b>{fmt_node(selected[0])}</b><br>select destination",
-                    "showarrow": True,
-                    "arrowhead": 0,
-                    "arrowcolor": "rgba(255,224,130,0.45)",
-                    "ax": 0,
-                    "ay": -30,
-                    "font": {"size": 10, "color": "#ffe082", "family": "'IBM Plex Mono', monospace"},
-                    "bgcolor": "rgba(18,28,42,0.88)",
-                    "bordercolor": "rgba(255,224,130,0.4)",
-                    "borderwidth": 1,
-                    "borderpad": 4,
-                }
+                dict(
+                    x=n["x"],
+                    y=n["y"] + 0.28,
+                    text=f"<b>{fmt_node(selected[0])}</b><br>select destination",
+                    showarrow=True,
+                    arrowhead=0,
+                    arrowcolor="rgba(255,224,130,0.45)",
+                    ax=0,
+                    ay=-30,
+                    font=dict(size=10, color="#ffe082", family="'IBM Plex Mono', monospace"),
+                    bgcolor="rgba(18,28,42,0.88)",
+                    bordercolor="rgba(255,224,130,0.4)",
+                    borderwidth=1,
+                    borderpad=4,
+                )
             )
 
     y_range = [-0.55, depth + 0.55]
@@ -527,26 +522,24 @@ def make_figure(
         annotations=annotations,
         shapes=shapes,
         showlegend=True,
-        legend={
-            "orientation": "h",
-            "yanchor": "bottom",
-            "y": 1.02,
-            "xanchor": "right",
-            "x": 1,
-            "font": {"size": 11, "color": "#c0d0e0", "family": "'IBM Plex Mono', monospace"},
-            "bgcolor": "rgba(0,0,0,0)",
-        },
-        xaxis={"showgrid": False, "zeroline": False, "showticklabels": False, "showline": False},
-        yaxis={"showgrid": False, "zeroline": False, "showticklabels": False, "showline": False, "range": y_range},
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=11, color="#c0d0e0", family="'IBM Plex Mono', monospace"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, showline=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, showline=False, range=y_range),
         plot_bgcolor="#0d1117",
         paper_bgcolor="#0d1117",
-        margin={"l": 110, "r": 30, "t": 40, "b": 50},
+        margin=dict(l=110, r=30, t=40, b=50),
         height=520,
-        hoverlabel={
-            "bgcolor": "#1a2332",
-            "bordercolor": "#4ecdc4",
-            "font": {"color": "#e0f0ff", "family": "'IBM Plex Mono', monospace"},
-        },
+        hoverlabel=dict(
+            bgcolor="#1a2332", bordercolor="#4ecdc4", font=dict(color="#e0f0ff", family="'IBM Plex Mono', monospace")
+        ),
         dragmode="pan",
         uirevision=f"{k}-{depth}",  # preserve zoom across path selections
     )
@@ -1349,9 +1342,7 @@ app.layout = html.Div(
     Input("toggle-track", "n_clicks"),
     State("selection-store", "data"),
 )
-def update_selection(
-    click_data: Any, k: int, depth: int, n_clicks: Any, store: dict
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+def update_selection(click_data, k: int, depth: int, n_clicks, store: dict):
     from dash import ctx
 
     triggered = ctx.triggered_id
@@ -1432,7 +1423,7 @@ def update_selection(
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
 )
-def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], html.Div]:
+def render(store: dict, k: int, depth: int):
     selected: list[str] = store.get("hosts", [])
     paths: list[list[str]] = []
     total_paths = 0
