@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday February 23rd 2026 6:42:29 am                         #
+#  Last Modified: Monday February 23rd 2026 8:22:24 am                         #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -30,11 +30,220 @@ from __future__ import annotations
 
 import colorsys
 from collections import defaultdict
+from dataclasses import dataclass, field
 from typing import Any
 
 import dash
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html
+
+# ============================================================================
+# [NEW] Hardware node metadata & DC profiles
+# ============================================================================
+
+
+@dataclass
+class HardwareNode:
+    """Describes the compute hardware in a single host/rack slot."""
+
+    hw_type: str = "cpu"  # 'cpu' | 'gpu' | 'tpu' | 'storage' | 'mixed'
+    gpu_count: int = 0  # accelerators per rack (0 = CPU-only)
+    gpu_model: str = ""  # e.g. 'H100-80G', 'A100-40G'
+    cpu_cores: int = 64  # logical cores
+    memory_tb: float = 0.5  # host RAM in TB
+    interconnect: str = "ethernet"  # 'ethernet' | 'infiniband' | 'roce-v2'
+    rack_power_kw: float = 7.0  # rated rack power
+    pod_role: str = "general"  # 'training' | 'inference' | 'storage' | 'control'
+    utilisation: float = 0.0  # 0.0–1.0 for colour encoding
+
+
+@dataclass
+class DatacenterProfile:
+    """Pre-baked topology + fabric parameters for well-known data centers."""
+
+    name: str
+    k: int
+    depth: int
+    port_speed_gbps: float
+    oversubscription: float  # 1.0 = non-blocking
+    fabric_gen: str
+    interconnect: str
+    notes: str
+    hw_mix: dict = field(default_factory=dict)  # % breakdown: {'gpu':0.7,'cpu':0.3}
+
+
+# ── Built-in DC profiles ──────────────────────────────────────────────────────
+PRESET_PROFILES: dict[str, DatacenterProfile] = {
+    "custom": DatacenterProfile(
+        "Custom",
+        4,
+        3,
+        10.0,
+        2.0,
+        "Generic fat-tree",
+        "ethernet",
+        "Manually configure k and depth with the sliders.",
+        {},
+    ),
+    "jupiter_2015": DatacenterProfile(
+        "Google Jupiter 2015",
+        48,
+        3,
+        10.0,
+        1.0,
+        "Jupiter Gen-1",
+        "ethernet",
+        "First-gen Jupiter: 48-port Close, non-blocking, 10 GbE inter-block.",
+        {"gpu": 0.0, "cpu": 1.0},
+    ),
+    "jupiter_2023": DatacenterProfile(
+        "Google Jupiter 2023",
+        64,
+        3,
+        100.0,
+        1.0,
+        "Jupiter Optical",
+        "ethernet",
+        "Optical circuit switching, 100 GbE, 64-port spine, ~petabit BW.",
+        {"gpu": 0.4, "cpu": 0.6},
+    ),
+    "meta_fabric_v2": DatacenterProfile(
+        "Meta Fabric v2",
+        32,
+        2,
+        400.0,
+        1.5,
+        "Meta Fabric v2",
+        "ethernet",
+        "Spine-leaf Close, 400 GbE per spine port, 1.5:1 oversubscription.",
+        {"gpu": 0.3, "cpu": 0.7},
+    ),
+    "ai_cluster": DatacenterProfile(
+        "Generic AI Cluster",
+        8,
+        3,
+        400.0,
+        1.0,
+        "GPU Cluster",
+        "roce-v2",
+        "Dense GPU racks (H100), RoCE-v2, non-blocking for all-reduce.",
+        {"gpu": 0.8, "cpu": 0.2},
+    ),
+    "futuristic_hpc": DatacenterProfile(
+        "Futuristic HPC DC",
+        16,
+        3,
+        800.0,
+        1.0,
+        "800 GbE Optical",
+        "infiniband",
+        "800 GbE / NDR InfiniBand, optical switching, 8-GPU racks (H200/MI300X).",
+        {"gpu": 0.9, "cpu": 0.1},
+    ),
+}
+
+# ── Hardware color & shape encoding ──────────────────────────────────────────
+HW_COLORS = {
+    "cpu": "#a8b5c1",  # steel grey  (matches existing host colour)
+    "gpu": "#f7dc6f",  # yellow
+    "tpu": "#bb8fce",  # purple
+    "storage": "#45b7d1",  # blue
+    "mixed": "#4ecdc4",  # teal
+}
+HW_SHAPES = {
+    "cpu": "circle",
+    "gpu": "square",
+    "tpu": "diamond",
+    "storage": "triangle-up",
+    "mixed": "circle",
+}
+
+# ============================================================================
+# [NEW] Analytics helpers
+# ============================================================================
+
+
+def compute_analytics(nodes: list[dict], edges: list[tuple], profile: DatacenterProfile) -> dict:
+    """Derive key data-center metrics from the current topology."""
+    n_hosts = sum(1 for n in nodes if n["type"] == "host")
+    n_sw = sum(1 for n in nodes if n["type"] != "host")
+    n_cables = len(edges)
+    half_k = profile.k // 2
+
+    # Bisection bandwidth (theoretical, non-blocking Close)
+    bisection_tbps = round((n_hosts / 2) * profile.port_speed_gbps / 1000, 2)
+
+    # Average paths between pods (k/2 for depth-3 fat-tree)
+    avg_paths = half_k if profile.depth == 3 else 1
+
+    # Estimated cluster power
+    hw_mix = profile.hw_mix or {"cpu": 1.0}
+    gpu_frac = hw_mix.get("gpu", 0.0)
+    avg_power = 7.0 + gpu_frac * 23.0  # CPU rack ~7 kW, GPU rack ~30 kW
+    total_power_mw = round(n_hosts * avg_power / 1000, 2)
+
+    # Switch latency estimate (per hop, ns)
+    switch_latency_ns = 200 if profile.interconnect == "infiniband" else 800
+
+    return {
+        "hosts": n_hosts,
+        "switches": n_sw,
+        "cables": n_cables,
+        "bisection_tbps": bisection_tbps,
+        "oversubscription": profile.oversubscription,
+        "avg_gpu_paths": avg_paths,
+        "total_power_mw": total_power_mw,
+        "switch_lat_ns": switch_latency_ns,
+        "interconnect": profile.interconnect.upper(),
+        "port_speed_gbps": profile.port_speed_gbps,
+    }
+
+
+# ============================================================================
+# [NEW] GPU-affinity weighted routing
+# ============================================================================
+
+
+def gpu_affinity_weight(node_map: dict, a: str, b: str) -> float:
+    """Cost of traversing edge a→b; penalises cross-pod (core) hops."""
+    na, nb = node_map.get(a, {}), node_map.get(b, {})
+    pod_a = na.get("pod", -1)
+    pod_b = nb.get("pod", -2)
+    # Crossing into a core switch costs 10x; same-pod hop costs 1
+    if a.startswith("core_") or b.startswith("core_"):
+        return 10.0
+    if pod_a != pod_b:
+        return 5.0
+    return 1.0
+
+
+def find_paths_weighted(
+    adj: dict, node_map: dict, src: str, dst: str, max_hops: int = 10, gpu_affinity: bool = False
+) -> tuple[list[list[str]], int]:
+    """
+    Weighted DFS path finder.
+    When gpu_affinity=True, paths are ranked by weighted cost (lower = GPU-preferred).
+    Falls back to hop-count ranking when gpu_affinity=False.
+    """
+    all_results: list[tuple[float, list[str]]] = []
+    stack = [(src, [src], {src}, 0.0)]
+    while stack:
+        node, path, visited, cost = stack.pop()
+        if len(path) - 1 >= max_hops:
+            continue
+        for nb in adj.get(node, []):
+            edge_cost = gpu_affinity_weight(node_map, node, nb) if gpu_affinity else 1.0
+            new_cost = cost + edge_cost
+            if nb == dst:
+                all_results.append((new_cost, path + [dst]))
+            elif nb not in visited:
+                stack.append((nb, path + [nb], visited | {nb}, new_cost))
+
+    all_results.sort(key=lambda x: (x[0], len(x[1]), x[1]))
+    total = len(all_results)
+    paths = [p for _, p in all_results]
+    return paths, total
+
 
 # ============================================================================
 # Fat-tree topology builder
@@ -1123,6 +1332,49 @@ app.layout = html.Div(
         # ── Controls + Stats ────────────────────────────────────────────────────
         html.Div(
             [
+                # [NEW] DC Profile Selector
+                html.Div(
+                    [
+                        html.Div("Data Center Profile", style=CTRL_LABEL),
+                        dcc.Dropdown(
+                            id="dc-profile",
+                            options=[{"label": p.name, "value": k} for k, p in PRESET_PROFILES.items()],
+                            value="custom",
+                            clearable=False,
+                            style={
+                                "background": "#090e15",
+                                "color": "#4ecdc4",
+                                "border": "1px solid #1a2840",
+                                "borderRadius": "4px",
+                                "fontSize": "11px",
+                            },
+                        ),
+                    ],
+                    style={"flex": "0 0 220px"},
+                ),
+                # [NEW] Routing Mode
+                html.Div(
+                    [
+                        html.Div("Routing Mode", style=CTRL_LABEL),
+                        dcc.RadioItems(
+                            id="routing-mode",
+                            options=[
+                                {"label": "Shortest Hop", "value": "shortest"},
+                                {"label": "GPU-Affinity", "value": "gpu_affinity"},
+                            ],
+                            value="shortest",
+                            inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={
+                                "color": "#8ba3b8",
+                                "fontSize": "10px",
+                                "marginRight": "12px",
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                            },
+                        ),
+                    ],
+                    style={"flex": "0 0 260px"},
+                ),
                 html.Div(
                     [
                         html.Div("Ports per Switch  (k)", style=CTRL_LABEL),
@@ -1179,6 +1431,21 @@ app.layout = html.Div(
                 "padding": "14px 24px",
                 "background": "#080d12",
                 "borderBottom": "1px solid #0f1c2a",
+            },
+        ),
+        # [NEW] ── Analytics Strip ────────────────────────────────────────────────
+        html.Div(
+            id="analytics-strip",
+            style={
+                "display": "flex",
+                "gap": "10px",
+                "flexWrap": "wrap",
+                "padding": "8px 24px",
+                "background": "#060b10",
+                "borderBottom": "1px solid #0f1c2a",
+                "fontSize": "10px",
+                "fontFamily": "'IBM Plex Mono', monospace",
+                "color": "#8ba3b8",
             },
         ),
         # ── Main: graph left, path panel right ──────────────────────────────────
@@ -1325,7 +1592,16 @@ app.layout = html.Div(
         ),
         # ── State stores ────────────────────────────────────────────────────────
         dcc.Store(
-            id="selection-store", data={"hosts": [], "k": 4, "depth": 3, "shortest_only": True, "total_paths": 0}
+            id="selection-store",
+            data={
+                "hosts": [],
+                "k": 4,
+                "depth": 3,
+                "shortest_only": True,
+                "total_paths": 0,
+                "dc_profile": "custom",
+                "routing_mode": "shortest",
+            },
         ),
     ],
     style={"maxWidth": "1520px", "margin": "0 auto"},
@@ -1462,6 +1738,66 @@ def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], 
         stat_cards,
         build_path_panel(selected, paths, total_paths, store.get("shortest_only", True)),
     )
+
+
+# ============================================================================
+# [NEW] Callbacks — DC profile sync + Analytics strip
+# ============================================================================
+
+
+@callback(
+    Output("k-slider", "value"),
+    Output("depth-slider", "value"),
+    Input("dc-profile", "value"),
+    State("k-slider", "value"),
+    State("depth-slider", "value"),
+)
+def sync_profile(profile_key: str, cur_k: int, cur_d: int) -> tuple[int, int]:
+    """When a DC profile is selected, update k and depth sliders."""
+    p = PRESET_PROFILES.get(profile_key)
+    if p is None or profile_key == "custom":
+        return cur_k, cur_d
+    k_clamped = max(2, min(p.k, 12))  # UI slider max is 12
+    d_clamped = max(1, min(p.depth, 3))
+    return k_clamped, d_clamped
+
+
+@callback(
+    Output("analytics-strip", "children"),
+    Input("k-slider", "value"),
+    Input("depth-slider", "value"),
+    Input("dc-profile", "value"),
+)
+def update_analytics(k: int, depth: int, profile_key: str) -> list[html.Div]:
+    """Recompute and render the analytics metrics strip."""
+    nodes, edges = build_fat_tree(k, depth)
+    profile = PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"])
+    m = compute_analytics(nodes, edges, profile)
+
+    def chip(label: Any, value: Any, color: str = "#4ecdc4") -> html.Div:
+        return html.Div(
+            [
+                html.Span(label + ": ", style={"color": "#2d4a66"}),
+                html.Span(str(value), style={"color": color, "fontWeight": "600"}),
+            ],
+            style={
+                "background": "#0d1117",
+                "border": "1px solid #131e2b",
+                "borderRadius": "4px",
+                "padding": "3px 10px",
+            },
+        )
+
+    return [
+        chip("Profile", profile.name, "#bb8fce"),
+        chip("Bisection BW", f"{m['bisection_tbps']} Tbps", "#4ecdc4"),
+        chip("Oversub", f"{m['oversubscription']}:1", "#f7dc6f"),
+        chip("GPU Paths", m["avg_gpu_paths"], "#ff6b6b"),
+        chip("Power (est.)", f"{m['total_power_mw']} MW", "#45b7d1"),
+        chip("Switch Lat.", f"{m['switch_lat_ns']} ns", "#8ba3b8"),
+        chip("Link Speed", f"{m['port_speed_gbps']} Gbps", "#4ecdc4"),
+        chip("Interconnect", m["interconnect"], "#bb8fce"),
+    ]
 
 
 # ============================================================================

@@ -1,17 +1,20 @@
 services:
-  testing:
-    container_name: ${IMAGE}
-    image: ${IMAGE_TAG}
-    working_dir: /root/${REPOSITORY}
+
+  assignment_common: &assignment_common
+    image: amizzuddin/sc4052:latest
     network_mode: "host"
     privileged: true
     stdin_open: true
-    ipc: host
-    devices:
-      - /dev:/dev
     security_opt:
       - seccomp:unconfined
     cap_add:
       - ALL
     environment:
       DISPLAY: $DISPLAY
+
+  assignment_1:
+    container_name: assignment_1
+    command: ["ros2 launch il_gazebo gazebo.launch.py"]
+    ports:
+      - "8050:8050"
+    <<: *assignment_common

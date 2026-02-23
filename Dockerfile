@@ -30,9 +30,6 @@ COPY requirements.txt .
 RUN --mount=type=cache,id=pip,target=/root/.cache \
     python3 -m pip install --upgrade -r requirements.txt
 
-# Copy Workspace into the container
-# COPY workspace /root/workspace
-
 # Add Git autocompletion
 RUN echo "source /usr/share/bash-completion/completions/git" >> ~/.bashrc
 
@@ -42,7 +39,8 @@ ARG REPOSITORY
 ARG ROOT_DIRECTORY
 ARG WORKSPACE
 
-# Add the build and remove source files
+# Copy Workspace into the container
+COPY workspace /root/workspace
 
 ############################################### DEVELOPMENT IMAGE ###############################################
 FROM base AS dev
