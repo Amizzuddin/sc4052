@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday February 24th 2026 6:59:52 am                        #
+#  Last Modified: Tuesday February 24th 2026 11:43:20 am                       #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -230,12 +230,20 @@ def gpu_affinity_weight(node_map: dict, a: str, b: str) -> float:
 
 
 def find_paths_weighted(
-    adj: dict, node_map: dict, src: str, dst: str, max_hops: int = 10, gpu_affinity: bool = False
-) -> tuple[list[list[str]], int]:
+    adj: dict,
+    node_map: dict,
+    src: str,
+    dst: str,
+    max_hops: int = 10,
+    gpu_affinity: bool = False,
+    cheapest_only: bool = True,
+) -> tuple[list[list[str]], int, list[float]]:
     """
     Weighted DFS path finder.
     When gpu_affinity=True, paths are ranked by weighted cost (lower = GPU-preferred).
-    Falls back to hop-count ranking when gpu_affinity=False.
+    When cheapest_only=True (default), only the minimum-cost paths are returned
+    for display — analogous to shortest_only in find_all_paths.
+    Returns (display_paths, total_count, display_costs).
     """
     all_results: list[tuple[float, list[str]]] = []
     stack = [(src, [src], {src}, 0.0)]
@@ -253,8 +261,16 @@ def find_paths_weighted(
 
     all_results.sort(key=lambda x: (x[0], len(x[1]), x[1]))
     total = len(all_results)
-    paths = [p for _, p in all_results]
-    return paths, total
+
+    if cheapest_only and all_results:
+        min_cost = all_results[0][0]
+        display = [(c, p) for c, p in all_results if c == min_cost]
+    else:
+        display = all_results
+
+    paths = [p for _, p in display]
+    costs = [c for c, _ in display]
+    return paths, total, costs
 
 
 # ============================================================================
@@ -777,12 +793,14 @@ def make_figure(
                 bw = 2.8
                 symbol = "x"
             elif is_sel:
-                col = "#ffffff"
-                sz = NODE_SIZES[ntype] * 2.2
+                # [FIX] Keep hw_color so GPU stays yellow, TPU stays purple, etc.
+                # Show selection via enlarged size + bright white border, NOT white fill.
+                col = base_col
+                sz = NODE_SIZES[ntype] * 2.4
                 op = 1.0
-                bc = "rgba(255,255,255,0.9)"
-                bw = 2.5
-                symbol = base_shape
+                bc = "#ffffff"
+                bw = 3.2
+                symbol = base_shape  # hw_shape preserved
             elif is_path:
                 col = next((colors[i] for i, p in enumerate(paths) if nid in p), base_col)
                 sz = NODE_SIZES[ntype] * 1.55
@@ -805,11 +823,18 @@ def make_figure(
                 bw = 1.1
                 symbol = base_shape
 
-            # Hover: show hw metadata for hosts; failure flag for failed nodes
-            failed_tag = "<br><b style='color:#f44'>⚠ FAILED</b>" if is_failed else ""
+            # Hover: show hw metadata for hosts; failure/selection flags
+            failed_tag = "<br><b style='color:#f55'>⚠ FAILED</b>" if is_failed else ""
+            sel_tag = "<br><b style='color:#ffe082'>● SELECTED</b>" if is_sel else ""
             if ntype == "host":
                 hw = n.get("hw_type", "cpu")
-                hover_txt = f"<b>{nid}</b><br>" f"HW: {hw.upper()}<br>" f"Shape: {base_shape}" f"{failed_tag}"
+                hw_color = n.get("hw_color", "#a8b5c1")
+                hover_txt = (
+                    f"<b>{nid}</b><br>"
+                    f"<span style='color:{hw_color}'>▪ {hw.upper()}</span>"
+                    f"  shape: {base_shape}"
+                    f"{sel_tag}{failed_tag}"
+                )
             else:
                 hover_txt = f"<b>{nid}</b>{failed_tag}"
                 if not is_failed:
@@ -851,6 +876,9 @@ def make_figure(
         temp_n = node_map.get(sel_id)
         if temp_n:
             n = temp_n
+            # [FIX] pulse ring uses the node's own hw_shape so a GPU square
+            # gets a square ring, a TPU diamond gets a diamond ring, etc.
+            pulse_shape = n.get("hw_shape", "circle")
             pulse_traces.append(
                 go.Scatter(
                     x=[n["x"]],
@@ -858,9 +886,9 @@ def make_figure(
                     mode="markers",
                     marker={
                         "color": "rgba(0,0,0,0)",
-                        "size": NODE_SIZES["host"] * 4.0,
-                        "symbol": "circle",
-                        "line": {"color": "rgba(255,224,130,0.55)", "width": 1.8},
+                        "size": NODE_SIZES["host"] * 4.2,
+                        "symbol": pulse_shape,
+                        "line": {"color": "rgba(255,224,130,0.65)", "width": 1.8},
                     },
                     hoverinfo="none",
                     showlegend=False,
@@ -1012,7 +1040,12 @@ def mono(txt: str, color: str = "#c9d9e8", size: str = "12px", weight: str = "40
 
 
 def build_path_panel(
-    selected: list[str], paths: list[list[str]], total_paths: int = 0, shortest_only: bool = True
+    selected: list[str],
+    paths: list[list[str]],
+    total_paths: int = 0,
+    shortest_only: bool = True,
+    routing_mode: str = "shortest",
+    path_costs: list[float] | None = None,
 ) -> html.Div:
 
     # ---- No selection -------------------------------------------------------
@@ -1109,16 +1142,38 @@ def build_path_panel(
     hops = (len(paths[0]) - 1) if paths else 0
 
     # Build path rows
+    path_costs = path_costs or []
     path_rows = []
+    is_gpu_mode = routing_mode == "gpu_affinity"
+
     for i, (path, color) in enumerate(zip(paths, colors)):
+        # Count core hops to explain the GPU-affinity cost
+        n_core_hops = sum(1 for nid in path if nid.startswith("core_"))
+        path_hops = len(path) - 1
+        cost_val = path_costs[i] if i < len(path_costs) else None
+
         # Arrow-separated node labels with type-appropriate colors
+        # Highlight core switches in red when gpu_affinity mode is active
         parts: list[Any] = []
         for j, nid in enumerate(path):
             ntype_key = nid.split("_")[0]
             nc = NODE_TYPE_COLORS.get(ntype_key, "#c9d9e8")
+            # In GPU-affinity mode, highlight cross-pod core hops as expensive
+            if is_gpu_mode and nid.startswith("core_"):
+                nc = "#ff6b6b"
             parts.append(mono(fmt_node(nid), nc, "10px"))
             if j < len(path) - 1:
                 parts.append(mono(" → ", "#1e3a52", "10px"))
+
+        # Badge: show cost in GPU-affinity mode, hop count in normal mode
+        if is_gpu_mode and cost_val is not None:
+            badge_text = f"cost {int(cost_val)}"
+            badge_color = "#ff6b6b" if n_core_hops > 0 else "#4ecdc4"
+            badge_title = f"{path_hops}h · {n_core_hops} core hop{'s' if n_core_hops!=1 else ''}"
+        else:
+            badge_text = f"{path_hops}h"
+            badge_color = "#2d4a66"
+            badge_title = badge_text
 
         path_rows.append(
             html.Div(
@@ -1153,7 +1208,7 @@ def build_path_panel(
                             "flexShrink": "0",
                         },
                     ),
-                    # ② Node sequence
+                    # ② Node sequence (core hops red in GPU mode)
                     html.Div(
                         parts,
                         style={
@@ -1164,19 +1219,41 @@ def build_path_panel(
                             "flex": "1",
                         },
                     ),
-                    # ③ Hop count badge
+                    # ③ Cost / hop badge
                     html.Div(
-                        f"{hops}h",
+                        [
+                            html.Div(
+                                badge_text,
+                                style={
+                                    "fontFamily": "'IBM Plex Mono', monospace",
+                                    "fontSize": "9px",
+                                    "color": badge_color,
+                                    "background": "#080d12",
+                                    "borderRadius": "3px",
+                                    "padding": "2px 5px",
+                                },
+                            ),
+                            html.Div(
+                                badge_title if is_gpu_mode else "",
+                                style={
+                                    "fontFamily": "'IBM Plex Mono', monospace",
+                                    "fontSize": "8px",
+                                    "color": "#2d4a66",
+                                    "background": "#080d12",
+                                    "borderRadius": "3px",
+                                    "padding": "1px 4px",
+                                    "marginTop": "2px",
+                                    "display": "block" if is_gpu_mode else "none",
+                                },
+                            ),
+                        ],
                         style={
-                            "fontFamily": "'IBM Plex Mono', monospace",
-                            "fontSize": "9px",
-                            "color": "#2d4a66",
-                            "background": "#080d12",
-                            "borderRadius": "3px",
-                            "padding": "2px 5px",
                             "flexShrink": "0",
                             "alignSelf": "flex-start",
                             "marginTop": "2px",
+                            "display": "flex",
+                            "flexDirection": "column",
+                            "alignItems": "flex-end",
                         },
                     ),
                 ],
@@ -1326,22 +1403,44 @@ def build_path_panel(
                     "flexWrap": "wrap",
                 },
             ),
-            # ── Type badge + reset hint ─────────────────────────────────────────
+            # ── Type badge + routing mode badge + reset hint ──────────────────
             html.Div(
                 [
                     html.Div(
-                        ptype,
-                        style={
-                            "fontFamily": "'IBM Plex Mono', monospace",
-                            "fontSize": "9px",
-                            "letterSpacing": "0.12em",
-                            "fontWeight": "600",
-                            "color": badge_fg,
-                            "background": badge_bg,
-                            "borderRadius": "3px",
-                            "padding": "3px 8px",
-                            "border": f"1px solid {badge_fg}40",
-                        },
+                        [
+                            html.Div(
+                                ptype,
+                                style={
+                                    "fontFamily": "'IBM Plex Mono', monospace",
+                                    "fontSize": "9px",
+                                    "letterSpacing": "0.12em",
+                                    "fontWeight": "600",
+                                    "color": badge_fg,
+                                    "background": badge_bg,
+                                    "borderRadius": "3px",
+                                    "padding": "3px 8px",
+                                    "border": f"1px solid {badge_fg}40",
+                                },
+                            ),
+                            # [NEW] Routing mode pill — changes appearance per mode
+                            html.Div(
+                                "⚡ GPU-AFFINITY" if routing_mode == "gpu_affinity" else "SHORTEST-HOP",
+                                style={
+                                    "fontFamily": "'IBM Plex Mono', monospace",
+                                    "fontSize": "9px",
+                                    "letterSpacing": "0.1em",
+                                    "fontWeight": "600",
+                                    "color": "#f7dc6f" if routing_mode == "gpu_affinity" else "#4e6880",
+                                    "background": "#1a1500" if routing_mode == "gpu_affinity" else "#0d1117",
+                                    "borderRadius": "3px",
+                                    "padding": "3px 8px",
+                                    "border": (
+                                        "1px solid #f7dc6f40" if routing_mode == "gpu_affinity" else "1px solid #1a2840"
+                                    ),
+                                },
+                            ),
+                        ],
+                        style={"display": "flex", "gap": "6px", "alignItems": "center"},
                     ),
                     html.Div(
                         "click any host to reset",
@@ -1367,9 +1466,9 @@ def build_path_panel(
                     html.Span(
                         (
                             (
-                                f"Showing {len(paths)} shortest path{'s' if len(paths) != 1 else ''}"
+                                f"Showing {len(paths)} {'cheapest' if routing_mode == 'gpu_affinity' else 'shortest'} path{'s' if len(paths) != 1 else ''}"
                                 + (
-                                    f"  ·  {total_paths - len(paths)} longer hidden"
+                                    f"  ·  {total_paths - len(paths)} {'costlier' if routing_mode == 'gpu_affinity' else 'longer'} hidden"
                                     if shortest_only and total_paths > len(paths)
                                     else ""
                                 )
@@ -2077,6 +2176,9 @@ def update_selection(
     if triggered == "toggle-track":
         shortest_only = not shortest_only
         store = {**store, "shortest_only": shortest_only}
+    elif triggered == "routing-mode":
+        # [FIX] Write the new routing mode into the store so render() picks it up
+        store = {**store, "routing_mode": routing_mode}
     elif triggered in ("k-slider", "depth-slider"):
         store = {
             "hosts": [],
@@ -2102,20 +2204,26 @@ def update_selection(
                     "routing_mode": store.get("routing_mode", "shortest"),
                 }
             elif nid in current:
+                # [FIX] preserve dc_profile + routing_mode so hw icons survive deselect
                 store = {
                     "hosts": [h for h in current if h != nid],
                     "k": k,
                     "depth": depth,
                     "shortest_only": shortest_only,
                     "total_paths": tp,
+                    "dc_profile": store.get("dc_profile", "custom"),
+                    "routing_mode": store.get("routing_mode", "shortest"),
                 }
             else:
+                # [FIX] preserve dc_profile + routing_mode so hw icons survive selection
                 store = {
                     "hosts": current + [nid],
                     "k": k,
                     "depth": depth,
                     "shortest_only": shortest_only,
                     "total_paths": tp,
+                    "dc_profile": store.get("dc_profile", "custom"),
+                    "routing_mode": store.get("routing_mode", "shortest"),
                 }
 
     # Visual toggle state
@@ -2178,22 +2286,24 @@ def render(store: dict, k: int, depth: int, sim: dict) -> tuple[go.Figure, list[
     failed_nodes: list[str] = sim.get("failed_nodes", [])
     link_util: float = float(sim.get("link_util", 0))
 
+    path_costs: list[float] = []
+    routing_mode = store.get("routing_mode", "shortest")
+
     if len(selected) == 2:
         _, topo_edges = build_fat_tree(k, depth)
-        # [SIM] Use failure-aware adjacency so paths avoid failed nodes
         adj = build_adjacency_with_failures(topo_edges, failed_nodes)
-        routing_mode = store.get("routing_mode", "shortest")
         if routing_mode == "gpu_affinity":
             topo_nodes, _ = build_fat_tree(k, depth)
             assign_hw_types(topo_nodes, profile)
             nmap = {n["id"]: n for n in topo_nodes}
-            paths, total_paths = find_paths_weighted(
+            paths, total_paths, path_costs = find_paths_weighted(
                 adj,
                 nmap,
                 selected[0],
                 selected[1],
                 max_hops=10,
                 gpu_affinity=True,
+                cheapest_only=True,
             )
         else:
             paths, total_paths = find_all_paths(
@@ -2216,7 +2326,14 @@ def render(store: dict, k: int, depth: int, sim: dict) -> tuple[go.Figure, list[
     return (
         make_figure(k, depth, selected, paths, profile, failed_nodes, link_util),
         stat_cards,
-        build_path_panel(selected, paths, total_paths, store.get("shortest_only", True)),
+        build_path_panel(
+            selected,
+            paths,
+            total_paths,
+            store.get("shortest_only", True),
+            routing_mode=routing_mode,
+            path_costs=path_costs,
+        ),
     )
 
 
