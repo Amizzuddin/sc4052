@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday February 24th 2026 6:50:48 am                        #
+#  Last Modified: Tuesday February 24th 2026 6:59:52 am                        #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -468,6 +468,17 @@ def build_adjacency(edges: list[tuple[str, str]]) -> dict[str, list[str]]:
     return dict(adj)
 
 
+def build_adjacency_with_failures(edges: list[tuple[str, str]], failed_nodes: list[str]) -> dict[str, list[str]]:
+    """Build adjacency table excluding any edge that touches a failed node."""
+    failed = set(failed_nodes or [])
+    adj: dict[str, list[str]] = defaultdict(list)
+    for a, b in edges:
+        if a not in failed and b not in failed:
+            adj[a].append(b)
+            adj[b].append(a)
+    return dict(adj)
+
+
 def find_all_paths(
     adj: dict[str, list[str]], src: str, dst: str, max_hops: int = 8, shortest_only: bool = True
 ) -> tuple[list[list[str]], int]:
@@ -586,12 +597,31 @@ NODE_TYPE_COLORS = {
 # ============================================================================
 
 
+def util_to_color(util: float) -> str:
+    """Map 0–100 utilisation to a CSS rgb string: green → amber → red."""
+    u = max(0.0, min(1.0, util / 100.0))
+    if u < 0.5:
+        # green (0,200,100) → amber (255,165,0)
+        r = int(u * 2 * 255)
+        g = int(200 - u * 2 * (200 - 165))
+        b = int(100 - u * 2 * 100)
+    else:
+        # amber (255,165,0) → red (220,50,50)
+        t = (u - 0.5) * 2
+        r = int(255 - t * 35)
+        g = int(165 - t * 165)
+        b = int(t * 50)
+    return f"rgb({r},{g},{b})"
+
+
 def make_figure(
     k: int,
     depth: int,
     selected: list[str] | None = None,
     paths: list[list[str]] | None = None,
     profile: "DatacenterProfile | None" = None,
+    failed_nodes: list[str] | None = None,
+    link_util: float = 0.0,
 ) -> go.Figure:
 
     nodes, edges = build_fat_tree(k, depth)
@@ -600,6 +630,7 @@ def make_figure(
     node_map = {n["id"]: n for n in nodes}
     selected = selected or []
     paths = paths or []
+    failed_set = set(failed_nodes or [])
     selected_set = set(selected)
     colors = path_colors(len(paths))
 
@@ -630,18 +661,47 @@ def make_figure(
                 }
             )
 
-    # ---- base edge trace (all cables, dimmed when paths visible) -----------
-    ex, ey = [], []
-    for src, dst in edges:
-        n1, n2 = node_map[src], node_map[dst]
-        ex += [n1["x"], n2["x"], None]
-        ey += [n1["y"], n2["y"], None]
+    # ---- edge traces: split into normal / congested / failed-adjacent --------
+    normal_ex, normal_ey = [], []
+    failed_ex, failed_ey = [], []
 
+    edge_color = util_to_color(link_util) if link_util > 0 else None
+    is_congested = link_util >= 80
+
+    for a, b in edges:
+        n1, n2 = node_map[a], node_map[b]
+        seg_x = [n1["x"], n2["x"], None]
+        seg_y = [n1["y"], n2["y"], None]
+        if a in failed_set or b in failed_set:
+            failed_ex += seg_x
+            failed_ey += seg_y
+        else:
+            normal_ex += seg_x
+            normal_ey += seg_y
+
+    # Normal / utilisation-coloured cables
+    normal_opacity = 0.10 if has_paths else 0.32
+    if link_util > 0 and not has_paths:
+        normal_opacity = 0.65  # make utilisation colour visible
     base_trace = go.Scatter(
-        x=ex,
-        y=ey,
+        x=normal_ex,
+        y=normal_ey,
         mode="lines",
-        line={"color": f"rgba(130,160,190,{0.10 if has_paths else 0.32})", "width": 0.7},
+        line={
+            "color": edge_color if (link_util > 0 and not has_paths) else f"rgba(130,160,190,{normal_opacity})",
+            "width": 1.1 if link_util > 0 else 0.7,
+        },
+        opacity=normal_opacity if not (link_util > 0 and not has_paths) else 1.0,
+        hoverinfo="none",
+        showlegend=False,
+        name="",
+    )
+    # Failed-adjacent cables — dashed dark-red
+    failed_edge_trace = go.Scatter(
+        x=failed_ex,
+        y=failed_ey,
+        mode="lines",
+        line={"color": "rgba(200,40,40,0.55)", "width": 0.9, "dash": "dot"},
         hoverinfo="none",
         showlegend=False,
         name="",
@@ -706,7 +766,17 @@ def make_figure(
             # [NEW] Use per-node hw_color for the base colour
             base_col = n.get("hw_color", NODE_COLORS.get(ntype, "#a8b5c1"))
 
-            if is_sel:
+            is_failed = nid in failed_set
+
+            if is_failed:
+                # Failed node: dark body, bright red border, X symbol
+                col = "rgba(30,10,10,0.9)"
+                sz = NODE_SIZES[ntype] * 1.6
+                op = 0.95
+                bc = "rgba(220,50,50,0.95)"
+                bw = 2.8
+                symbol = "x"
+            elif is_sel:
                 col = "#ffffff"
                 sz = NODE_SIZES[ntype] * 2.2
                 op = 1.0
@@ -728,19 +798,22 @@ def make_figure(
                 bw = 0.8
                 symbol = base_shape
             else:
-                col = base_col  # ← hw_color drives the colour
+                col = base_col
                 sz = NODE_SIZES[ntype]
                 op = 1.0
                 bc = "rgba(255,255,255,0.45)"
                 bw = 1.1
-                symbol = base_shape  # ← hw_shape drives the symbol
+                symbol = base_shape
 
-            # Hover: show hw metadata for hosts
+            # Hover: show hw metadata for hosts; failure flag for failed nodes
+            failed_tag = "<br><b style='color:#f44'>⚠ FAILED</b>" if is_failed else ""
             if ntype == "host":
                 hw = n.get("hw_type", "cpu")
-                hover_txt = f"<b>{nid}</b><br>" f"HW: {hw.upper()}<br>" f"Shape: {base_shape}"
+                hover_txt = f"<b>{nid}</b><br>" f"HW: {hw.upper()}<br>" f"Shape: {base_shape}" f"{failed_tag}"
             else:
-                hover_txt = f"<b>{nid}</b>"
+                hover_txt = f"<b>{nid}</b>{failed_tag}"
+                if not is_failed:
+                    hover_txt += "<br><i style='color:#4ecdc4'>Click to fail (sim mode)</i>"
 
             xs.append(n["x"])
             ys.append(n["y"])
@@ -851,8 +924,46 @@ def make_figure(
                 }
             )
 
+    # ---- congestion warning annotation (util >= 80%) -----------------------
+    if is_congested:
+        annotations.append(
+            {
+                "x": 0.5,
+                "y": 1.05,
+                "xref": "paper",
+                "yref": "paper",
+                "text": f"⚠  CONGESTION ALERT — Link utilisation at {link_util:.0f}%",
+                "showarrow": False,
+                "font": {"size": 11, "color": "#ff6b6b", "family": "'IBM Plex Mono', monospace"},
+                "bgcolor": "rgba(80,10,10,0.7)",
+                "bordercolor": "#ff6b6b",
+                "borderwidth": 1,
+                "borderpad": 6,
+                "xanchor": "center",
+            }
+        )
+
+    # ---- failed nodes counter annotation -----------------------------------
+    if failed_set:
+        annotations.append(
+            {
+                "x": 1.0,
+                "y": 1.05,
+                "xref": "paper",
+                "yref": "paper",
+                "text": f"✕  {len(failed_set)} node(s) failed",
+                "showarrow": False,
+                "font": {"size": 10, "color": "rgba(220,50,50,0.9)", "family": "'IBM Plex Mono', monospace"},
+                "bgcolor": "rgba(40,5,5,0.75)",
+                "bordercolor": "rgba(200,40,40,0.6)",
+                "borderwidth": 1,
+                "borderpad": 5,
+                "xanchor": "right",
+            }
+        )
+
     y_range = [-0.55, depth + 0.55]
-    fig = go.Figure(data=[base_trace] + path_traces + pulse_traces + node_traces)
+    fig = go.Figure(data=[base_trace, failed_edge_trace] + path_traces + pulse_traces + node_traces)
     fig.update_layout(
         annotations=annotations,
         shapes=shapes,
@@ -1569,6 +1680,148 @@ app.layout = html.Div(
                 "color": "#8ba3b8",
             },
         ),
+        # [SIM] ── Simulation Controls Bar ─────────────────────────────────────────
+        html.Div(
+            [
+                # Mode toggle button
+                html.Div(
+                    [
+                        html.Div(
+                            "SIMULATION MODE",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "9px",
+                                "letterSpacing": "0.12em",
+                                "color": "#2d4a66",
+                                "marginRight": "10px",
+                            },
+                        ),
+                        html.Button(
+                            "OFF",
+                            id="sim-toggle-btn",
+                            n_clicks=0,
+                            style={
+                                "background": "#0d1821",
+                                "color": "#4e6880",
+                                "border": "1px solid #1a2840",
+                                "borderRadius": "4px",
+                                "padding": "3px 12px",
+                                "fontSize": "10px",
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "cursor": "pointer",
+                                "letterSpacing": "0.1em",
+                            },
+                        ),
+                    ],
+                    style={"display": "flex", "alignItems": "center"},
+                ),
+                # Separator
+                html.Div(
+                    style={
+                        "width": "1px",
+                        "height": "28px",
+                        "background": "#1a2840",
+                        "margin": "0 18px",
+                    }
+                ),
+                # Link utilisation label + slider
+                html.Div(
+                    [
+                        html.Div(
+                            id="util-label",
+                            children="LINK UTIL: 0%",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "9px",
+                                "letterSpacing": "0.1em",
+                                "color": "#2d4a66",
+                                "marginBottom": "4px",
+                                "minWidth": "130px",
+                            },
+                        ),
+                        dcc.Slider(
+                            id="util-slider",
+                            min=0,
+                            max=100,
+                            step=5,
+                            value=0,
+                            marks={
+                                0: {"label": "0%", "style": {"color": "#2d4a66", "fontSize": "9px"}},
+                                50: {"label": "50%", "style": {"color": "#f7dc6f", "fontSize": "9px"}},
+                                80: {"label": "80%", "style": {"color": "#ff6b6b", "fontSize": "9px"}},
+                                100: {"label": "100%", "style": {"color": "#ff4444", "fontSize": "9px"}},
+                            },
+                            tooltip={"placement": "top", "always_visible": False},
+                        ),
+                    ],
+                    style={"flex": "0 0 260px"},
+                ),
+                # Separator
+                html.Div(
+                    style={
+                        "width": "1px",
+                        "height": "28px",
+                        "background": "#1a2840",
+                        "margin": "0 18px",
+                    }
+                ),
+                # Failed nodes counter + clear button
+                html.Div(
+                    [
+                        html.Div(
+                            id="failed-counter",
+                            children="0 NODES FAILED",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "10px",
+                                "color": "#4e6880",
+                                "marginRight": "12px",
+                            },
+                        ),
+                        html.Button(
+                            "CLEAR FAILURES",
+                            id="clear-failures-btn",
+                            n_clicks=0,
+                            style={
+                                "background": "#0d1821",
+                                "color": "#4e6880",
+                                "border": "1px solid #1a2840",
+                                "borderRadius": "4px",
+                                "padding": "3px 12px",
+                                "fontSize": "10px",
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "cursor": "pointer",
+                                "letterSpacing": "0.08em",
+                            },
+                        ),
+                    ],
+                    style={"display": "flex", "alignItems": "center"},
+                ),
+                # Instructions (shown when sim mode is on)
+                html.Div(
+                    id="sim-instructions",
+                    children="",
+                    style={
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "fontSize": "9px",
+                        "color": "#2d4a66",
+                        "marginLeft": "auto",
+                        "fontStyle": "italic",
+                    },
+                ),
+            ],
+            id="sim-controls-bar",
+            style={
+                "display": "flex",
+                "alignItems": "center",
+                "padding": "7px 24px",
+                "background": "#04080d",
+                "borderBottom": "1px solid #0a1520",
+                "flexWrap": "wrap",
+                "gap": "4px",
+                "minHeight": "44px",
+            },
+        ),
         # [NEW] ── HW Type Legend ────────────────────────────────────────────────
         html.Div(
             [
@@ -1786,6 +2039,8 @@ app.layout = html.Div(
                 "routing_mode": "shortest",
             },
         ),
+        # [SIM] Simulation state store
+        dcc.Store(id="sim-store", data={"sim_mode": False, "failed_nodes": [], "link_util": 0}),
     ],
     style={"maxWidth": "1520px", "margin": "0 auto"},
 )
@@ -1907,11 +2162,9 @@ def update_selection(
     Input("selection-store", "data"),
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
-    # NOTE: dc-profile is intentionally NOT an Input here.
-    # profile_key is read from selection-store (written by sync_profile)
-    # so that k, depth, and profile are always atomically consistent.
+    Input("sim-store", "data"),  # [SIM] re-render on every simulation change
 )
-def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], html.Div]:
+def render(store: dict, k: int, depth: int, sim: dict) -> tuple[go.Figure, list[html.Div], html.Div]:
     selected: list[str] = store.get("hosts", [])
     paths: list[list[str]] = []
     total_paths = 0
@@ -1920,9 +2173,15 @@ def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], 
     profile_key = store.get("dc_profile", "custom")
     profile = PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"])
 
+    # [SIM] Simulation state
+    sim = sim or {}
+    failed_nodes: list[str] = sim.get("failed_nodes", [])
+    link_util: float = float(sim.get("link_util", 0))
+
     if len(selected) == 2:
         _, topo_edges = build_fat_tree(k, depth)
-        adj = build_adjacency(topo_edges)
+        # [SIM] Use failure-aware adjacency so paths avoid failed nodes
+        adj = build_adjacency_with_failures(topo_edges, failed_nodes)
         routing_mode = store.get("routing_mode", "shortest")
         if routing_mode == "gpu_affinity":
             topo_nodes, _ = build_fat_tree(k, depth)
@@ -1955,7 +2214,7 @@ def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], 
     ]
 
     return (
-        make_figure(k, depth, selected, paths, profile),  # [NEW] pass profile
+        make_figure(k, depth, selected, paths, profile, failed_nodes, link_util),
         stat_cards,
         build_path_panel(selected, paths, total_paths, store.get("shortest_only", True)),
     )
@@ -2031,6 +2290,124 @@ def update_analytics(k: int, depth: int, store: dict) -> list:
         chip("Link Speed", f"{m['port_speed_gbps']} Gbps", "#4ecdc4"),
         chip("Interconnect", m["interconnect"], "#bb8fce"),
     ]
+
+
+# ============================================================================
+# [SIM] Simulation callbacks
+# ============================================================================
+
+
+@callback(
+    Output("sim-store", "data"),
+    Output("sim-toggle-btn", "children"),
+    Output("sim-toggle-btn", "style"),
+    Output("failed-counter", "children"),
+    Output("failed-counter", "style"),
+    Output("sim-instructions", "children"),
+    Output("util-label", "children"),
+    Input("sim-toggle-btn", "n_clicks"),
+    Input("clear-failures-btn", "n_clicks"),
+    Input("fat-tree-graph", "clickData"),
+    Input("util-slider", "value"),
+    Input("k-slider", "value"),
+    Input("depth-slider", "value"),
+    State("sim-store", "data"),
+    prevent_initial_call=False,
+)
+def update_sim_store(
+    toggle_clicks: Any, clear_clicks: Any, click_data: Any, util_val: Any, k: Any, depth: Any, sim: Any
+) -> tuple[dict, str, dict, str, dict, str, str]:
+    """Master simulation callback — handles mode toggle, click-to-fail, clear, and util slider."""
+    from dash import ctx
+
+    sim = sim or {"sim_mode": False, "failed_nodes": [], "link_util": 0}
+    triggered = ctx.triggered_id
+
+    sim_mode = sim.get("sim_mode", False)
+    failed = list(sim.get("failed_nodes", []))
+    link_util = sim.get("link_util", 0)
+
+    # ── Toggle simulation mode ───────────────────────────────────────────────
+    if triggered == "sim-toggle-btn":
+        sim_mode = not sim_mode
+        if not sim_mode:
+            failed = []  # clear failures when turning off
+
+    # ── Clear failures ───────────────────────────────────────────────────────
+    elif triggered == "clear-failures-btn":
+        failed = []
+
+    # ── Topology change → reset failures ────────────────────────────────────
+    elif triggered in ("k-slider", "depth-slider"):
+        failed = []
+        sim_mode = False
+
+    # ── Click on graph → add/remove switch from failed set ──────────────────
+    elif triggered == "fat-tree-graph" and click_data and sim_mode:
+        nid = click_data["points"][0].get("text", "")
+        # Only switches (non-host) can be failed via click in sim mode
+        if nid and not nid.startswith("h_"):
+            if nid in failed:
+                failed.remove(nid)  # second click un-fails it
+            else:
+                failed.append(nid)
+
+    # ── Utilisation slider ───────────────────────────────────────────────────
+    elif triggered == "util-slider":
+        link_util = util_val if util_val is not None else 0
+
+    new_sim = {"sim_mode": sim_mode, "failed_nodes": failed, "link_util": link_util}
+
+    # ── Build UI feedback ────────────────────────────────────────────────────
+    btn_label = "ON  ●" if sim_mode else "OFF"
+    btn_style = {
+        "background": "#0a2010" if sim_mode else "#0d1821",
+        "color": "#4ecdc4" if sim_mode else "#4e6880",
+        "border": "1px solid #4ecdc4" if sim_mode else "1px solid #1a2840",
+        "borderRadius": "4px",
+        "padding": "3px 12px",
+        "fontSize": "10px",
+        "fontFamily": "'IBM Plex Mono', monospace",
+        "cursor": "pointer",
+        "letterSpacing": "0.1em",
+        "fontWeight": "600" if sim_mode else "400",
+    }
+
+    n_failed = len(failed)
+    ctr_label = f"{n_failed} NODE{'S' if n_failed != 1 else ''} FAILED"
+    ctr_style = {
+        "fontFamily": "'IBM Plex Mono', monospace",
+        "fontSize": "10px",
+        "color": "#ef5350" if n_failed > 0 else "#4e6880",
+        "marginRight": "12px",
+        "fontWeight": "600" if n_failed > 0 else "400",
+    }
+
+    instructions = "⚡ Click any SWITCH to fail it — click again to restore" if sim_mode else ""
+
+    # util_color = "#ef5350" if link_util >= 80 else "#f7dc6f" if link_util >= 50 else "#4ecdc4"
+    util_label = f"LINK UTIL: {link_util}%"
+
+    return new_sim, btn_label, btn_style, ctr_label, ctr_style, instructions, util_label
+
+
+@callback(
+    Output("util-label", "style"),
+    Input("util-slider", "value"),
+)
+def update_util_label_color(util_val: int) -> dict:
+    """Colour the utilisation label to match congestion level."""
+    util_val = util_val or 0
+    color = "#ef5350" if util_val >= 80 else "#f7dc6f" if util_val >= 50 else "#4ecdc4" if util_val > 0 else "#2d4a66"
+    return {
+        "fontFamily": "'IBM Plex Mono', monospace",
+        "fontSize": "9px",
+        "letterSpacing": "0.1em",
+        "color": color,
+        "marginBottom": "4px",
+        "minWidth": "130px",
+        "fontWeight": "600" if util_val >= 80 else "400",
+    }
 
 
 # ============================================================================
