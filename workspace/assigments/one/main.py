@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday February 24th 2026 11:43:20 am                       #
+#  Last Modified: Tuesday February 24th 2026 12:33:28 pm                       #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -29,6 +29,7 @@ Then open http://127.0.0.1:8050
 from __future__ import annotations
 
 import colorsys
+import copy
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,11 +38,10 @@ import dash
 import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html
 
+
 # ============================================================================
 # [NEW] Hardware node metadata & DC profiles
 # ============================================================================
-
-
 @dataclass
 class HardwareNode:
     """Describes the compute hardware in a single host/rack slot."""
@@ -170,11 +170,10 @@ HW_SHAPES = {
     "mixed": "circle",
 }
 
+
 # ============================================================================
 # [NEW] Analytics helpers
 # ============================================================================
-
-
 def compute_analytics(nodes: list[dict], edges: list[tuple], profile: DatacenterProfile) -> dict:
     """Derive key data-center metrics from the current topology."""
     n_hosts = sum(1 for n in nodes if n["type"] == "host")
@@ -212,10 +211,50 @@ def compute_analytics(nodes: list[dict], edges: list[tuple], profile: Datacenter
 
 
 # ============================================================================
+# [NEW] Profile overrides — apply user-edited interconnect + hw_mix at runtime
+# ============================================================================
+def apply_overrides(profile: Any, overrides: dict) -> Any:
+    """Return a shallow copy of profile with user overrides applied."""
+    if not overrides:
+        return profile
+    p = copy.copy(profile)
+    ic = overrides.get("interconnect")
+    if ic:
+        p.interconnect = ic
+    gf_raw = overrides.get("gpu_frac")
+    if gf_raw is not None:
+        gf = max(0.0, min(1.0, float(gf_raw)))
+        orig = profile.hw_mix or {"cpu": 1.0}
+        tpu_f = orig.get("tpu", 0.0)
+        storage_f = orig.get("storage", 0.0)
+        other_f = tpu_f + storage_f
+        if 0 < other_f < 1.0:
+            scale = 1.0 - other_f
+            gf2 = round(gf * scale, 4)
+            cf2 = round(scale - gf2, 4)
+            new_mix = {}
+            if gf2 > 0:
+                new_mix["gpu"] = gf2
+            if cf2 > 0:
+                new_mix["cpu"] = cf2
+            if tpu_f > 0:
+                new_mix["tpu"] = tpu_f
+            if storage_f > 0:
+                new_mix["storage"] = storage_f
+        else:
+            cf = round(1.0 - gf, 4)
+            new_mix = {}
+            if gf > 0:
+                new_mix["gpu"] = gf
+            if cf > 0:
+                new_mix["cpu"] = cf
+        p.hw_mix = new_mix
+    return p
+
+
+# ============================================================================
 # [NEW] GPU-affinity weighted routing
 # ============================================================================
-
-
 def gpu_affinity_weight(node_map: dict, a: str, b: str) -> float:
     """Cost of traversing edge a→b; penalises cross-pod (core) hops."""
     na, nb = node_map.get(a, {}), node_map.get(b, {})
@@ -342,8 +381,6 @@ def assign_hw_types(nodes: list[dict], profile: "DatacenterProfile | None") -> N
 # ============================================================================
 # Fat-tree topology builder
 # ============================================================================
-
-
 def build_fat_tree(k: int, depth: int) -> tuple[list[dict], list[tuple[str, str]]]:
     k = max(2, k - (k % 2))
     depth = max(1, min(depth, 3))
@@ -431,8 +468,6 @@ def build_fat_tree(k: int, depth: int) -> tuple[list[dict], list[tuple[str, str]
 # ============================================================================
 # Statistics
 # ============================================================================
-
-
 def compute_stats(k: int, depth: int) -> dict[str, int]:
     k = max(2, k - (k % 2))
     depth = max(1, min(depth, 3))
@@ -474,8 +509,6 @@ def compute_stats(k: int, depth: int) -> dict[str, int]:
 # ============================================================================
 # Graph + path utilities
 # ============================================================================
-
-
 def build_adjacency(edges: list[tuple[str, str]]) -> dict[str, list[str]]:
     adj: dict[str, list[str]] = defaultdict(list)
     for a, b in edges:
@@ -577,7 +610,6 @@ def path_colors(n: int) -> list[str]:
 # ============================================================================
 # Visual constants
 # ============================================================================
-
 NODE_COLORS = {
     "core": "#ff6b6b",
     "aggregation": "#4ecdc4",
@@ -611,8 +643,6 @@ NODE_TYPE_COLORS = {
 # ============================================================================
 # Plotly figure builder
 # ============================================================================
-
-
 def util_to_color(util: float) -> str:
     """Map 0–100 utilisation to a CSS rgb string: green → amber → red."""
     u = max(0.0, min(1.0, util / 100.0))
@@ -1025,8 +1055,6 @@ def make_figure(
 # ============================================================================
 # Path analysis panel builder
 # ============================================================================
-
-
 def mono(txt: str, color: str = "#c9d9e8", size: str = "12px", weight: str = "400") -> html.Span:
     return html.Span(
         txt,
@@ -1530,7 +1558,6 @@ def build_path_panel(
 # ============================================================================
 # Dash app
 # ============================================================================
-
 app = dash.Dash(
     __name__,
     title="Fat Tree Visualizer",
@@ -1777,6 +1804,146 @@ app.layout = html.Div(
                 "fontSize": "10px",
                 "fontFamily": "'IBM Plex Mono', monospace",
                 "color": "#8ba3b8",
+            },
+        ),
+        # [OVERRIDE] ── Profile Overrides Bar ────────────────────────────────────────
+        html.Div(
+            [
+                # Label
+                html.Div(
+                    "PROFILE OVERRIDES",
+                    style={
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "fontSize": "9px",
+                        "letterSpacing": "0.14em",
+                        "color": "#2d4a66",
+                        "marginRight": "18px",
+                        "whiteSpace": "nowrap",
+                    },
+                ),
+                # Interconnect selector
+                html.Div(
+                    [
+                        html.Div(
+                            "INTERCONNECT",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "8px",
+                                "letterSpacing": "0.1em",
+                                "color": "#2d4a66",
+                                "marginBottom": "4px",
+                            },
+                        ),
+                        dcc.RadioItems(
+                            id="interconnect-override",
+                            options=[
+                                {"label": "Ethernet", "value": "ethernet"},
+                                {"label": "RoCE-v2", "value": "roce-v2"},
+                                {"label": "InfiniBand", "value": "infiniband"},
+                            ],
+                            value="ethernet",
+                            inline=True,
+                            inputStyle={"marginRight": "4px"},
+                            labelStyle={
+                                "color": "#8ba3b8",
+                                "fontSize": "10px",
+                                "marginRight": "14px",
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                            },
+                        ),
+                    ],
+                    style={"flex": "0 0 auto"},
+                ),
+                # Separator
+                html.Div(
+                    style={
+                        "width": "1px",
+                        "height": "28px",
+                        "background": "#1a2840",
+                        "margin": "0 18px",
+                    }
+                ),
+                # GPU fraction slider
+                html.Div(
+                    [
+                        html.Div(
+                            id="gpu-mix-label",
+                            children="GPU MIX: GPU 0%  CPU 100%",
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "9px",
+                                "letterSpacing": "0.08em",
+                                "color": "#2d4a66",
+                                "marginBottom": "4px",
+                                "minWidth": "220px",
+                            },
+                        ),
+                        dcc.Slider(
+                            id="gpu-frac-slider",
+                            min=0,
+                            max=100,
+                            step=5,
+                            value=0,
+                            marks={
+                                0: {"label": "0%", "style": {"color": "#a8b5c1", "fontSize": "9px"}},
+                                25: {"label": "25%", "style": {"color": "#a8b5c1", "fontSize": "9px"}},
+                                50: {"label": "50%", "style": {"color": "#f7dc6f", "fontSize": "9px"}},
+                                75: {"label": "75%", "style": {"color": "#f7dc6f", "fontSize": "9px"}},
+                                100: {"label": "100%", "style": {"color": "#f7dc6f", "fontSize": "9px"}},
+                            },
+                            tooltip={"placement": "top", "always_visible": False},
+                        ),
+                    ],
+                    style={"flex": "0 0 300px"},
+                ),
+                # Separator
+                html.Div(
+                    style={
+                        "width": "1px",
+                        "height": "28px",
+                        "background": "#1a2840",
+                        "margin": "0 18px",
+                    }
+                ),
+                # Reset button
+                html.Button(
+                    "↺  Reset to Profile",
+                    id="reset-overrides-btn",
+                    n_clicks=0,
+                    style={
+                        "background": "#0d1821",
+                        "color": "#4e6880",
+                        "border": "1px solid #1a2840",
+                        "borderRadius": "4px",
+                        "padding": "3px 14px",
+                        "fontSize": "10px",
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "cursor": "pointer",
+                        "letterSpacing": "0.06em",
+                    },
+                ),
+                # Live effect hint
+                html.Div(
+                    "→ affects  Switch Lat. · Power (est.) · node colours",
+                    style={
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "fontSize": "9px",
+                        "color": "#1e3a52",
+                        "marginLeft": "auto",
+                        "fontStyle": "italic",
+                        "whiteSpace": "nowrap",
+                    },
+                ),
+            ],
+            style={
+                "display": "flex",
+                "alignItems": "center",
+                "padding": "7px 24px",
+                "background": "#030609",
+                "borderBottom": "1px solid #0a1520",
+                "flexWrap": "wrap",
+                "gap": "4px",
+                "minHeight": "44px",
             },
         ),
         # [SIM] ── Simulation Controls Bar ─────────────────────────────────────────
@@ -2140,6 +2307,8 @@ app.layout = html.Div(
         ),
         # [SIM] Simulation state store
         dcc.Store(id="sim-store", data={"sim_mode": False, "failed_nodes": [], "link_util": 0}),
+        # [OVERRIDE] Live profile overrides store
+        dcc.Store(id="overrides-store", data={"interconnect": "ethernet", "gpu_frac": 0.0}),
     ],
     style={"maxWidth": "1520px", "margin": "0 auto"},
 )
@@ -2148,8 +2317,6 @@ app.layout = html.Div(
 # ============================================================================
 # Callbacks
 # ============================================================================
-
-
 @callback(
     Output("selection-store", "data"),
     Output("toggle-knob", "style"),
@@ -2270,16 +2437,17 @@ def update_selection(
     Input("selection-store", "data"),
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
-    Input("sim-store", "data"),  # [SIM] re-render on every simulation change
+    Input("sim-store", "data"),
+    Input("overrides-store", "data"),  # [OVERRIDE]
 )
-def render(store: dict, k: int, depth: int, sim: dict) -> tuple[go.Figure, list[html.Div], html.Div]:
+def render(store: dict, k: int, depth: int, sim: dict, overrides: dict) -> tuple[go.Figure, list[html.Div], html.Div]:
     selected: list[str] = store.get("hosts", [])
     paths: list[list[str]] = []
     total_paths = 0
 
     # Read profile from store — guaranteed consistent with k/depth
     profile_key = store.get("dc_profile", "custom")
-    profile = PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"])
+    profile = apply_overrides(PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"]), overrides or {})
 
     # [SIM] Simulation state
     sim = sim or {}
@@ -2340,34 +2508,45 @@ def render(store: dict, k: int, depth: int, sim: dict) -> tuple[go.Figure, list[
 # ============================================================================
 # [NEW] Callbacks — DC profile sync + Analytics strip
 # ============================================================================
-
-
 @callback(
     Output("k-slider", "value"),
     Output("depth-slider", "value"),
     Output("selection-store", "data", allow_duplicate=True),
+    Output("overrides-store", "data", allow_duplicate=True),  # [OVERRIDE] seed on profile change
+    Output("interconnect-override", "value"),  # [OVERRIDE] sync radio to profile
+    Output("gpu-frac-slider", "value"),  # [OVERRIDE] sync slider to profile
     Input("dc-profile", "value"),
     State("k-slider", "value"),
     State("depth-slider", "value"),
     State("selection-store", "data"),
     prevent_initial_call=True,
 )
-def sync_profile(profile_key: str, cur_k: int, cur_d: int, store: dict) -> tuple[int, int, dict]:
+def sync_profile(profile_key: str, cur_k: int, cur_d: int, store: dict) -> tuple[int, int, dict, dict, str, int]:
     """
     When a DC profile is selected:
       1. Update k/depth sliders to match the profile.
-      2. Write profile_key into selection-store so render() reads a
-         consistent (k, depth, profile) triple — eliminating the race.
+      2. Write profile_key into selection-store.
+      3. Reset overrides-store to the new profile's defaults.
+      4. Sync override controls to the profile defaults.
     """
-    p = PRESET_PROFILES.get(profile_key)
+    p = PRESET_PROFILES.get(profile_key) or PRESET_PROFILES["custom"]
     new_store = {**store, "dc_profile": profile_key, "hosts": []}
-    if p is None or profile_key == "custom":
-        return cur_k, cur_d, new_store
-    k_clamped = max(2, min(p.k, 12))  # UI slider max is 12
+
+    # Seed overrides from the profile's own values
+    gpu_frac = (p.hw_mix or {}).get("gpu", 0.0)
+    new_overrides = {
+        "interconnect": p.interconnect,
+        "gpu_frac": gpu_frac,
+    }
+
+    if profile_key == "custom":
+        return cur_k, cur_d, new_store, new_overrides, p.interconnect, int(gpu_frac * 100)
+
+    k_clamped = max(2, min(p.k, 12))
     d_clamped = max(1, min(p.depth, 3))
     new_store["k"] = k_clamped
     new_store["depth"] = d_clamped
-    return k_clamped, d_clamped, new_store
+    return k_clamped, d_clamped, new_store, new_overrides, p.interconnect, int(gpu_frac * 100)
 
 
 @callback(
@@ -2375,12 +2554,13 @@ def sync_profile(profile_key: str, cur_k: int, cur_d: int, store: dict) -> tuple
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
     Input("selection-store", "data"),
+    Input("overrides-store", "data"),  # [OVERRIDE]
 )
-def update_analytics(k: int, depth: int, store: dict) -> list:
+def update_analytics(k: int, depth: int, store: dict, overrides: dict) -> list:
     """Recompute and render the analytics metrics strip."""
     nodes, edges = build_fat_tree(k, depth)
     profile_key = store.get("dc_profile", "custom")
-    profile = PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"])
+    profile = apply_overrides(PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"]), overrides or {})
     m = compute_analytics(nodes, edges, profile)
 
     def chip(label: Any, value: Any, color: str = "#4ecdc4") -> html.Div:
@@ -2410,10 +2590,61 @@ def update_analytics(k: int, depth: int, store: dict) -> list:
 
 
 # ============================================================================
+# [OVERRIDE] Profile overrides callback
+# ============================================================================
+@callback(
+    Output("overrides-store", "data"),
+    Output("gpu-mix-label", "children"),
+    Output("gpu-mix-label", "style"),
+    Input("interconnect-override", "value"),
+    Input("gpu-frac-slider", "value"),
+    Input("reset-overrides-btn", "n_clicks"),
+    State("dc-profile", "value"),
+    State("overrides-store", "data"),
+    prevent_initial_call=False,
+)
+def update_overrides(
+    interconnect: Any, gpu_pct: Any, reset_clicks: Any, profile_key: Any, current_overrides: Any
+) -> tuple[dict, str, dict]:
+    """Write interconnect and gpu_frac into overrides-store; reset to profile defaults on button."""
+    from dash import ctx
+
+    triggered = ctx.triggered_id
+
+    if triggered == "reset-overrides-btn" or triggered is None:
+        # Reset controls to the currently selected profile's values
+        p = PRESET_PROFILES.get(profile_key or "custom", PRESET_PROFILES["custom"])
+        gf = (p.hw_mix or {}).get("gpu", 0.0)
+        new_overrides = {"interconnect": p.interconnect, "gpu_frac": gf}
+        gpu_pct_effective = int(gf * 100)
+        ic_effective = p.interconnect
+    else:
+        gf = (gpu_pct or 0) / 100.0
+        ic_effective = interconnect or "ethernet"
+        new_overrides = {"interconnect": ic_effective, "gpu_frac": gf}
+        gpu_pct_effective = int(gf * 100)
+
+    cpu_pct = 100 - gpu_pct_effective
+    label = f"GPU MIX: GPU {gpu_pct_effective}%  CPU {cpu_pct}%"
+
+    # Colour the label based on gpu fraction
+    label_color = "#f7dc6f" if gpu_pct_effective >= 50 else "#4ecdc4" if gpu_pct_effective >= 10 else "#a8b5c1"
+    label_style = {
+        "fontFamily": "'IBM Plex Mono', monospace",
+        "fontSize": "9px",
+        "letterSpacing": "0.08em",
+        "color": label_color,
+        "marginBottom": "4px",
+        "minWidth": "220px",
+        "fontWeight": "600" if gpu_pct_effective > 0 else "400",
+    }
+
+    return new_overrides, label, label_style
+
+
+# ============================================================================
 # [SIM] Simulation callbacks
 # ============================================================================
-
-
 @callback(
     Output("sim-store", "data"),
     Output("sim-toggle-btn", "children"),
@@ -2530,6 +2761,5 @@ def update_util_label_color(util_val: int) -> dict:
 # ============================================================================
 # Entry point
 # ============================================================================
-
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8050)
