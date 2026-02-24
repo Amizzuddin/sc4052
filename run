@@ -8,14 +8,12 @@ REGISTRY="docker.io/amizzuddin"
 COMPOSES_DIRECTORY="composes"
 COMMAND_OUTPUT_FILE="command_output.log"
 
-#TODO: Script to be the entry point to
-# 1) Clone submodules (if any)
-
 get_image_and_tag_name(){
     VERSION=$(get_latest_version_id)
     REPOSITORY=$(basename -s .git `git config --get remote.origin.url`)
     if [ $TARGET == "PROD" ]; then
-        IMAGE=$REPOSITORY
+        IMAGE_TARGET=${PRODUCTION_TARGET,,} # lowercase
+        IMAGE="${REPOSITORY}_${IMAGE_TARGET}"
     else
         IMAGE_TARGET=${TARGET,,} # lowercase
         IMAGE="${REPOSITORY}_${IMAGE_TARGET}"
@@ -52,24 +50,29 @@ get_latest_version_id(){
 
 print_help() {
     echo -e "\nUsage:"
-    echo -e "  $1 ${YELLOW}[command] [target]${NO_COLOR}\n"
+    echo -e "  $1 ${YELLOW}[command] [target] [production_target]${NO_COLOR}\n"
     echo -e "Available ${YELLOW}[command]${NO_COLOR}:"
-    echo -e "  ${CYAN}init${NO_COLOR}       Generate files required for development/deployment"
-    echo -e "  ${CYAN}build${NO_COLOR}      Build container image"
-    echo -e "  ${CYAN}push${NO_COLOR}       Push to registry"
-    echo -e "  ${CYAN}pull${NO_COLOR}       Pull from registry"
-    echo -e "  ${CYAN}test${NO_COLOR}       Test Pull/Build image"
-    echo -e "  ${CYAN}terminate${NO_COLOR}  Terminate running test image"
+    echo -e "  ${CYAN}init${NO_COLOR}           Generate files required for development/deployment"
+    echo -e "  ${CYAN}build${NO_COLOR}          Build container image"
+    echo -e "  ${CYAN}push${NO_COLOR}           Push to registry"
+    echo -e "  ${CYAN}pull${NO_COLOR}           Pull from registry"
+    echo -e "  ${CYAN}test${NO_COLOR}           Test Pull/Build image"
+    echo -e "  ${CYAN}terminate${NO_COLOR}      Terminate running test image"
     echo -e "Available ${YELLOW}[target]${NO_COLOR}"
-    echo -e "  ${CYAN}dev${NO_COLOR}      Devcontainer"
-    echo -e "  ${CYAN}prod${NO_COLOR}     Production"
+    echo -e "  ${CYAN}dev${NO_COLOR}            Devcontainer"
+    echo -e "  ${CYAN}prod${NO_COLOR}           Production"
+    echo -e "Available ${YELLOW}[production_target]${NO_COLOR}"
+    echo -e "  ${CYAN}assignment_1${NO_COLOR}   Assignment 1"
+    echo -e "  ${CYAN}assignment_2${NO_COLOR}   Assignment 2"
+    echo -e "  ${CYAN}project${NO_COLOR}        Project"
     exit 1
 }
 
 check_argument() {
     RUN=$1
-    COMMAND=${2^^} # Convert to uppercase
-    TARGET=${3^^} # Convert to uppercase
+    COMMAND=${2^^}              # Convert to uppercase
+    TARGET=${3^^}               # Convert to uppercase
+    PRODUCTION_TARGET=${4^^}    # Convert to uppercase
     check_command
 }
 
@@ -84,15 +87,25 @@ check_command() {
         print_help $RUN
     fi
     if [[ ! ${TARGET} =~ ^(DEV|PROD)$ ]]; then
-        echo -e "${RED}ERROR! Unknown 'target'${NO_COLOR}"
+        echo -e "${RED}ERROR! Unknown target: ${TARGET}${NO_COLOR}"
         print_help $RUN
     fi
 
+    if [ ${TARGET} == "PROD" ]; then
+        if [ -z ${PRODUCTION_TARGET} ]; then
+            echo -e "${RED}ERROR! Please specify 'production_target' for production target${NO_COLOR}"
+            print_help $RUN
+        fi
+        if [[ ! ${PRODUCTION_TARGET} =~ ^(ASSIGNMENT_1|ASSIGNMENT_2|PROJECT)$ ]]; then
+            echo -e "${RED}ERROR! Unknown production_target: ${PRODUCTION_TARGET}${NO_COLOR}"
+            print_help $RUN
+        fi
+        TARGET=$PRODUCTION_TARGET
+    fi
 
     case $COMMAND in
         INIT)
             COMMAND_FUNCTION=""
-            # COMMAND_FUNCTION="init_command"
             # To ensure `execute_command()` does not process `init_command`
             # since all commands requires to invoke `init_command`
             ;;
@@ -192,10 +205,7 @@ docker_login(){
 }
 
 push_command() {
-    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push construction"
-    execute_and_validate_docker_compose_command $PUSH_COMMAND
-
-    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push update_latest"
+    local PUSH_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml push"
     execute_and_validate_docker_compose_command $PUSH_COMMAND
 }
 
@@ -203,14 +213,12 @@ pull_command() {
     local PULL_COMMAND="docker-compose --file ${COMPOSES_DIRECTORY}/build_compose.yml pull"
     execute_and_validate_docker_compose_command $PULL_COMMAND
 
-    # Tagging to remove the registry ip address prefix
-    # docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG} && docker rmi ${REGISTRY_IMAGE}
     docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG}
     if [  $? -ne 0 ]; then
         echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
     fi
 
-    docker tag ${REGISTRY_IMAGE} ${IMAGE_TAG_LATEST}
+    docker tag ${REGISTRY_IMAGE_LATEST} ${IMAGE_TAG_LATEST}
     if [  $? -ne 0 ]; then
         echo -e "${RED}Failed to retag '${COMPONENT}' image ${NO_COLOR}"
     fi
@@ -241,23 +249,9 @@ execute_and_validate_docker_compose_command(){
     local DOCKER_COMPOSE_COMMAND=$@
 
     echo -e "Executing '${DOCKER_COMPOSE_COMMAND}'"
+
     # Execute compose command and write to a temp file
-    eval $DOCKER_COMPOSE_COMMAND #>&1 | tee $COMMAND_OUTPUT_FILE
-
-    ## START [Applicable for podman]
-    # Read the last line of the output file
-    # local LAST_READLINE=$(tail -n 1 $COMMAND_OUTPUT_FILE)
-    # local UPPERCASE_READLINE=${LAST_READLINE^^}
-
-    # Extract the code after the `exit code:` string, if can't find `exit code:` string, will return empty
-    # local STATUS_CODE=$(echo "$LAST_READLINE" | grep -oP "exit code:\s*\K\d+")
-
-    # if [[ -n "$STATUS_CODE" && $STATUS_CODE -ne 0 ]] || [[ "${UPPERCASE_READLINE}" == *"ERROR"* ]]; then
-    #     echo -e "${RED}Failed to execute the command '${COMMAND}' for '${IMAGE}' image${NO_COLOR}"
-    #     exit 1
-    # fi
-    ## END
-
+    eval $DOCKER_COMPOSE_COMMAND
     if [ $? != 0 ]; then
         echo -e "${RED}Failed to execute the command '${DOCKER_COMPOSE_COMMAND}' for '${IMAGE}' image${NO_COLOR}"
         exit 1
@@ -266,6 +260,5 @@ execute_and_validate_docker_compose_command(){
     echo -e "${GREEN}${COMMAND}ing completed successfully!${NO_COLOR}"
 }
 
-
-check_argument $0 $1 $2
+check_argument $0 $1 $2 $3
 execute_command

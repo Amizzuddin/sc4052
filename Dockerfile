@@ -30,25 +30,27 @@ COPY requirements.txt .
 RUN --mount=type=cache,id=pip,target=/root/.cache \
     python3 -m pip install --upgrade -r requirements.txt
 
-# Add Git autocompletion
-RUN echo "source /usr/share/bash-completion/completions/git" >> ~/.bashrc
+WORKDIR ${WORKSPACE}
 
 ############################################### PRODUCTION IMAGE ###############################################
 FROM base AS prod
-ARG REPOSITORY
-ARG ROOT_DIRECTORY
+
 ARG WORKSPACE
 
 # Copy Workspace into the container
-COPY workspace /root/workspace
+COPY workspace ${WORKSPACE}
+
+######################################## PRODUCTION IMAGE (assignment_1) ########################################
+FROM prod AS assignment_1
+
+EXPOSE 8050
+
+CMD ["python3", "assigments/one/main.py"]
 
 ############################################### DEVELOPMENT IMAGE ###############################################
 FROM base AS dev
 
-ARG WORKSPACE
-
 # additional thing needed but should not be in production
-
 RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     --mount=target=/var/cache/apt,type=cache,id=apt \
     apt-get install -y --no-install-recommends \
@@ -64,4 +66,5 @@ RUN --mount=type=cache,id=pip,target=/root/.cache \
 # otherwise there is warning dubious ownership
 RUN git config --global --add safe.directory "*"
 
-WORKDIR ${WORKSPACE}
+# Add Git autocompletion
+RUN echo "source /usr/share/bash-completion/completions/git" >> ~/.bashrc

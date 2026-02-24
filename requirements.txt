@@ -2,4 +2,3 @@ dash
 networkx
 plotly
 pyvis
-types-networkx

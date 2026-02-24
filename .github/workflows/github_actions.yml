@@ -4,7 +4,7 @@
 #  Author:        Amizzuddin Amin Chan
 #  Description:   <<ADD Description>>
 #  ---------------------------------------------------------------------------
-#  Last Modified: Monday February 23rd 2026 7:26:54 am
+#  Last Modified: Tuesday February 24th 2026 1:52:21 am
 #  Modified By:   Amizzuddin Amin Chan
 #  ---------------------------------------------------------------------------
 #  HISTORY:
@@ -94,11 +94,11 @@ jobs:
           username: amizzuddin
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: BUILD PRODUCTION Image
-        run: ./run build prod
+      - name: BUILD Assignment_1 PRODUCTION Image
+        run: ./run build prod assignment_1
 
       # - name: TEST PRODUCTION Image
       #   run: ./run test prod
 
-      - name: PUSH PRODUCTION Image to Registry
-        run: ./run push prod
+      - name: PUSH Assignment_1 PRODUCTION Image to Registry
+        run: ./run push prod assignment_1

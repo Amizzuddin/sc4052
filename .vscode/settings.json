@@ -42,7 +42,8 @@
 			"**/pyproject.toml",
 			"**/.env",
 			"**/*Dockerfile",
-			"**/.flake8"
+			"**/.flake8",
+			"**/VERSION"
 		],
 		"autoHeader": "autoSave",
 		"enforceHeader": true,
