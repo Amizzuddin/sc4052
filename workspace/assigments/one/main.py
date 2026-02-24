@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday February 23rd 2026 8:22:24 am                         #
+#  Last Modified: Tuesday February 24th 2026 6:50:48 am                        #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -137,8 +137,20 @@ PRESET_PROFILES: dict[str, DatacenterProfile] = {
         1.0,
         "800 GbE Optical",
         "infiniband",
-        "800 GbE / NDR InfiniBand, optical switching, 8-GPU racks (H200/MI300X).",
-        {"gpu": 0.9, "cpu": 0.1},
+        "800 GbE / NDR InfiniBand, optical switching. Mix: GPU (H200), TPU, CPU control.",
+        {"gpu": 0.6, "tpu": 0.3, "cpu": 0.1},
+    ),
+    # ── Dummy profile: every hw_type represented equally ─────────────────────
+    "all_types_demo": DatacenterProfile(
+        "★ Demo — All Host Types",
+        8,
+        3,
+        100.0,
+        1.0,
+        "Demo Fabric",
+        "roce-v2",
+        "Dummy profile showing all hardware types: CPU, GPU, TPU, Storage (25% each).",
+        {"cpu": 0.25, "gpu": 0.25, "tpu": 0.25, "storage": 0.25},
     ),
 }
 
@@ -243,6 +255,72 @@ def find_paths_weighted(
     total = len(all_results)
     paths = [p for _, p in all_results]
     return paths, total
+
+
+# ============================================================================
+# [NEW] Assign hardware types to host nodes from DC profile hw_mix
+# ============================================================================
+def assign_hw_types(nodes: list[dict], profile: "DatacenterProfile | None") -> None:
+    """
+    Stamp each host node with hw_type, hw_color and hw_shape in-place.
+    Uses count-based allocation so every hw_type in hw_mix is guaranteed
+    to appear at least once, even with very small weights or few hosts.
+    """
+    hw_mix = profile.hw_mix if profile and profile.hw_mix else {"cpu": 1.0}
+    # Normalise weights so they sum to 1.0
+    total_w = sum(hw_mix.values()) or 1.0
+    norm = {t: w / total_w for t, w in hw_mix.items() if w > 0}
+
+    host_nodes = [n for n in nodes if n["type"] == "host"]
+    n_hosts = len(host_nodes)
+
+    if n_hosts == 0:
+        return
+
+    # ── Count-based floor allocation ─────────────────────────────────────────
+    # Each type gets at least 1 host (if n_hosts allows), then proportional
+    # allocation of the remainder.
+    types = list(norm.keys())
+    guaranteed = min(len(types), n_hosts)  # how many types we can guarantee
+    floor_counts = dict.fromkeys(types, 0)
+    for t in types[:guaranteed]:
+        floor_counts[t] = 1
+    remainder = n_hosts - guaranteed
+
+    # Distribute remainder proportionally (largest-remainder method)
+    exact = {t: norm[t] * remainder for t in types}
+    floored = {t: int(exact[t]) for t in types}
+    leftover = remainder - sum(floored.values())
+    fracs = sorted(types, key=lambda t: -(exact[t] - floored[t]))
+    for t in fracs[:leftover]:
+        floored[t] += 1
+
+    # Final per-type counts
+    counts = {t: floor_counts[t] + floored[t] for t in types}
+
+    # Build the label list in sorted order so layout is spatially consistent:
+    # cpu → left pods, gpu → middle, tpu → right, storage → far right
+    TYPE_ORDER = ["cpu", "storage", "tpu", "gpu", "mixed"]
+    ordered = sorted(types, key=lambda t: TYPE_ORDER.index(t) if t in TYPE_ORDER else 99)
+    label_seq: list[str] = []
+    for t in ordered:
+        label_seq.extend([t] * counts[t])
+    # Pad/trim in case of rounding edge cases
+    while len(label_seq) < n_hosts:
+        label_seq.append(ordered[-1])
+    label_seq = label_seq[:n_hosts]
+
+    for n, hw in zip(host_nodes, label_seq):
+        n["hw_type"] = hw
+        n["hw_color"] = HW_COLORS.get(hw, "#a8b5c1")
+        n["hw_shape"] = HW_SHAPES.get(hw, "circle")
+
+    # Non-host nodes keep their original type colours
+    for n in nodes:
+        if n["type"] != "host":
+            n.setdefault("hw_type", n["type"])
+            n["hw_color"] = NODE_COLORS.get(n["type"], "#a8b5c1")
+            n["hw_shape"] = "circle"
 
 
 # ============================================================================
@@ -509,10 +587,16 @@ NODE_TYPE_COLORS = {
 
 
 def make_figure(
-    k: int, depth: int, selected: list[str] | None = None, paths: list[list[str]] | None = None
+    k: int,
+    depth: int,
+    selected: list[str] | None = None,
+    paths: list[list[str]] | None = None,
+    profile: "DatacenterProfile | None" = None,
 ) -> go.Figure:
 
     nodes, edges = build_fat_tree(k, depth)
+    # [NEW] Stamp hw_type / hw_color / hw_shape on every node
+    assign_hw_types(nodes, profile)
     node_map = {n["id"]: n for n in nodes}
     selected = selected or []
     paths = paths or []
@@ -583,20 +667,44 @@ def make_figure(
             )
         )
 
-    # ---- node traces (one scatter per type for legend) ---------------------
+    # ---- node traces — one trace per (type × hw_type) so shapes can differ --
+    # Group host nodes by hw_type for separate Plotly traces (each trace has
+    # one symbol). Switch-type nodes always use "circle".
+    from collections import defaultdict as _dd
+
     node_traces = []
-    for ntype in ["core", "aggregation", "edge", "host"]:
-        grp = [n for n in nodes if n["type"] == ntype]
+
+    # Separate hosts by hw_type; keep switches in their own groups
+    hw_groups: dict[tuple, list[dict]] = _dd(list)
+    for n in nodes:
+        if n["type"] == "host":
+            hw_groups[(n["type"], n.get("hw_type", "cpu"))].append(n)
+        else:
+            hw_groups[(n["type"], n["type"])].append(n)
+
+    for (ntype, hw_key), grp in hw_groups.items():
         if not grp:
             continue
 
-        xs, ys, texts = [], [], []
-        mcolors, msizes, mopacities, border_colors, border_widths = [], [], [], [], []
+        # Legend label: switches use node type label; hosts show hw_type
+        if ntype == "host":
+            legend_label = f"Host · {hw_key.upper()}"
+        else:
+            legend_label = NODE_LABELS.get(ntype, ntype.capitalize())
+
+        # Shape and base color for this group
+        base_shape = HW_SHAPES.get(hw_key, "circle") if ntype == "host" else "circle"
+
+        xs, ys, texts, hovers = [], [], [], []
+        mcolors, msizes, mopacities, border_colors, border_widths, msymbols = [], [], [], [], [], []
 
         for n in grp:
             nid = n["id"]
             is_sel = nid in selected_set
             is_path = nid in all_path_nodes
+
+            # [NEW] Use per-node hw_color for the base colour
+            base_col = n.get("hw_color", NODE_COLORS.get(ntype, "#a8b5c1"))
 
             if is_sel:
                 col = "#ffffff"
@@ -604,50 +712,63 @@ def make_figure(
                 op = 1.0
                 bc = "rgba(255,255,255,0.9)"
                 bw = 2.5
+                symbol = base_shape
             elif is_path:
-                # Color of the first path containing this node
-                col = next((colors[i] for i, p in enumerate(paths) if nid in p), NODE_COLORS[ntype])
+                col = next((colors[i] for i, p in enumerate(paths) if nid in p), base_col)
                 sz = NODE_SIZES[ntype] * 1.55
                 op = 1.0
                 bc = "rgba(255,255,255,0.7)"
                 bw = 1.8
+                symbol = base_shape
             elif has_paths:
                 col = "rgba(60,80,100,0.4)"
                 sz = NODE_SIZES[ntype] * (0.8 if ntype == "host" else 0.9)
                 op = 0.35
                 bc = "rgba(80,100,120,0.3)"
                 bw = 0.8
+                symbol = base_shape
             else:
-                col = NODE_COLORS[ntype]
+                col = base_col  # ← hw_color drives the colour
                 sz = NODE_SIZES[ntype]
                 op = 1.0
                 bc = "rgba(255,255,255,0.45)"
                 bw = 1.1
+                symbol = base_shape  # ← hw_shape drives the symbol
+
+            # Hover: show hw metadata for hosts
+            if ntype == "host":
+                hw = n.get("hw_type", "cpu")
+                hover_txt = f"<b>{nid}</b><br>" f"HW: {hw.upper()}<br>" f"Shape: {base_shape}"
+            else:
+                hover_txt = f"<b>{nid}</b>"
 
             xs.append(n["x"])
             ys.append(n["y"])
             texts.append(nid)
+            hovers.append(hover_txt)
             mcolors.append(col)
             msizes.append(sz)
             mopacities.append(op)
             border_colors.append(bc)
             border_widths.append(bw)
+            msymbols.append(symbol)
 
         node_traces.append(
             go.Scatter(
                 x=xs,
                 y=ys,
                 mode="markers",
-                name=NODE_LABELS[ntype],
+                name=legend_label,
                 marker={
                     "color": mcolors,
                     "size": msizes,
                     "opacity": mopacities,
-                    "symbol": "circle",
+                    "symbol": msymbols,  # ← per-node shape list
                     "line": {"color": border_colors, "width": border_widths},
                 },
                 text=texts,
-                hovertemplate="<b>%{text}</b><extra></extra>",
+                customdata=hovers,
+                hovertemplate="%{customdata}<extra></extra>",
             )
         )
 
@@ -1448,6 +1569,68 @@ app.layout = html.Div(
                 "color": "#8ba3b8",
             },
         ),
+        # [NEW] ── HW Type Legend ────────────────────────────────────────────────
+        html.Div(
+            [
+                html.Span(
+                    "HW TYPE LEGEND",
+                    style={
+                        "fontFamily": "'IBM Plex Mono', monospace",
+                        "fontSize": "8px",
+                        "letterSpacing": "0.12em",
+                        "color": "#2d4a66",
+                        "marginRight": "14px",
+                    },
+                ),
+            ]
+            + [
+                html.Div(
+                    [
+                        # SVG mini-icon matching Plotly shape
+                        html.Div(
+                            style={
+                                "width": "10px",
+                                "height": "10px",
+                                "background": color,
+                                "borderRadius": "2px" if shape == "square" else "50%" if shape == "circle" else "0",
+                                "transform": (
+                                    "rotate(45deg)"
+                                    if shape == "diamond"
+                                    else "none" if shape != "triangle-up" else "none"
+                                ),
+                                "clipPath": "polygon(50% 0%, 0% 100%, 100% 100%)" if shape == "triangle-up" else "none",
+                                "flexShrink": "0",
+                            }
+                        ),
+                        html.Span(
+                            label,
+                            style={
+                                "fontFamily": "'IBM Plex Mono', monospace",
+                                "fontSize": "9px",
+                                "color": color,
+                                "marginLeft": "5px",
+                            },
+                        ),
+                    ],
+                    style={"display": "flex", "alignItems": "center", "marginRight": "16px"},
+                )
+                for label, color, shape in [
+                    ("CPU  ●", "#a8b5c1", "circle"),
+                    ("GPU  ■", "#f7dc6f", "square"),
+                    ("TPU  ◆", "#bb8fce", "diamond"),
+                    ("STORAGE  ▲", "#45b7d1", "triangle-up"),
+                ]
+            ],
+            style={
+                "display": "flex",
+                "alignItems": "center",
+                "padding": "5px 24px",
+                "background": "#04080d",
+                "borderBottom": "1px solid #0a1520",
+                "flexWrap": "wrap",
+                "gap": "4px",
+            },
+        ),
         # ── Main: graph left, path panel right ──────────────────────────────────
         html.Div(
             [
@@ -1623,10 +1806,11 @@ app.layout = html.Div(
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
     Input("toggle-track", "n_clicks"),
+    Input("routing-mode", "value"),  # [NEW]
     State("selection-store", "data"),
 )
 def update_selection(
-    click_data: Any, k: int, depth: int, n_clicks: Any, store: dict
+    click_data: Any, k: int, depth: int, n_clicks: Any, routing_mode: str, store: dict
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     from dash import ctx
 
@@ -1639,13 +1823,29 @@ def update_selection(
         shortest_only = not shortest_only
         store = {**store, "shortest_only": shortest_only}
     elif triggered in ("k-slider", "depth-slider"):
-        store = {"hosts": [], "k": k, "depth": depth, "shortest_only": shortest_only, "total_paths": 0}
+        store = {
+            "hosts": [],
+            "k": k,
+            "depth": depth,
+            "shortest_only": shortest_only,
+            "total_paths": 0,
+            "routing_mode": routing_mode,
+            "dc_profile": store.get("dc_profile", "custom"),
+        }
     elif triggered == "fat-tree-graph" and click_data:
         nid: str = click_data["points"][0].get("text", "")
         if nid.startswith("h_"):
             current: list[str] = store.get("hosts", [])
             if len(current) >= 2:
-                store = {"hosts": [nid], "k": k, "depth": depth, "shortest_only": shortest_only, "total_paths": 0}
+                store = {
+                    "hosts": [nid],
+                    "k": k,
+                    "depth": depth,
+                    "shortest_only": shortest_only,
+                    "total_paths": 0,
+                    "dc_profile": store.get("dc_profile", "custom"),
+                    "routing_mode": store.get("routing_mode", "shortest"),
+                }
             elif nid in current:
                 store = {
                     "hosts": [h for h in current if h != nid],
@@ -1707,22 +1907,43 @@ def update_selection(
     Input("selection-store", "data"),
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
+    # NOTE: dc-profile is intentionally NOT an Input here.
+    # profile_key is read from selection-store (written by sync_profile)
+    # so that k, depth, and profile are always atomically consistent.
 )
 def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], html.Div]:
     selected: list[str] = store.get("hosts", [])
     paths: list[list[str]] = []
     total_paths = 0
 
+    # Read profile from store — guaranteed consistent with k/depth
+    profile_key = store.get("dc_profile", "custom")
+    profile = PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"])
+
     if len(selected) == 2:
         _, topo_edges = build_fat_tree(k, depth)
         adj = build_adjacency(topo_edges)
-        paths, total_paths = find_all_paths(
-            adj,
-            selected[0],
-            selected[1],
-            max_hops=8,
-            shortest_only=store.get("shortest_only", True),
-        )
+        routing_mode = store.get("routing_mode", "shortest")
+        if routing_mode == "gpu_affinity":
+            topo_nodes, _ = build_fat_tree(k, depth)
+            assign_hw_types(topo_nodes, profile)
+            nmap = {n["id"]: n for n in topo_nodes}
+            paths, total_paths = find_paths_weighted(
+                adj,
+                nmap,
+                selected[0],
+                selected[1],
+                max_hops=10,
+                gpu_affinity=True,
+            )
+        else:
+            paths, total_paths = find_all_paths(
+                adj,
+                selected[0],
+                selected[1],
+                max_hops=8,
+                shortest_only=store.get("shortest_only", True),
+            )
 
     stats = compute_stats(k, depth)
     stat_cards = [
@@ -1734,7 +1955,7 @@ def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], 
     ]
 
     return (
-        make_figure(k, depth, selected, paths),
+        make_figure(k, depth, selected, paths, profile),  # [NEW] pass profile
         stat_cards,
         build_path_panel(selected, paths, total_paths, store.get("shortest_only", True)),
     )
@@ -1748,29 +1969,41 @@ def render(store: dict, k: int, depth: int) -> tuple[go.Figure, list[html.Div], 
 @callback(
     Output("k-slider", "value"),
     Output("depth-slider", "value"),
+    Output("selection-store", "data", allow_duplicate=True),
     Input("dc-profile", "value"),
     State("k-slider", "value"),
     State("depth-slider", "value"),
+    State("selection-store", "data"),
+    prevent_initial_call=True,
 )
-def sync_profile(profile_key: str, cur_k: int, cur_d: int) -> tuple[int, int]:
-    """When a DC profile is selected, update k and depth sliders."""
+def sync_profile(profile_key: str, cur_k: int, cur_d: int, store: dict) -> tuple[int, int, dict]:
+    """
+    When a DC profile is selected:
+      1. Update k/depth sliders to match the profile.
+      2. Write profile_key into selection-store so render() reads a
+         consistent (k, depth, profile) triple — eliminating the race.
+    """
     p = PRESET_PROFILES.get(profile_key)
+    new_store = {**store, "dc_profile": profile_key, "hosts": []}
     if p is None or profile_key == "custom":
-        return cur_k, cur_d
+        return cur_k, cur_d, new_store
     k_clamped = max(2, min(p.k, 12))  # UI slider max is 12
     d_clamped = max(1, min(p.depth, 3))
-    return k_clamped, d_clamped
+    new_store["k"] = k_clamped
+    new_store["depth"] = d_clamped
+    return k_clamped, d_clamped, new_store
 
 
 @callback(
     Output("analytics-strip", "children"),
     Input("k-slider", "value"),
     Input("depth-slider", "value"),
-    Input("dc-profile", "value"),
+    Input("selection-store", "data"),
 )
-def update_analytics(k: int, depth: int, profile_key: str) -> list[html.Div]:
+def update_analytics(k: int, depth: int, store: dict) -> list:
     """Recompute and render the analytics metrics strip."""
     nodes, edges = build_fat_tree(k, depth)
+    profile_key = store.get("dc_profile", "custom")
     profile = PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"])
     m = compute_analytics(nodes, edges, profile)
 

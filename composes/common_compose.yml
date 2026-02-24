@@ -2,9 +2,3 @@ services:
   common_service:
     privileged: true
     stdin_open: true
-    # security_opt:
-    #   - seccomp:unconfined
-    # cap_add:
-    #   - ALL
-    # environment:
-    #   DISPLAY: $DISPLAY
