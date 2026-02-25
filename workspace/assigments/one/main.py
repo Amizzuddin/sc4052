@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   Help of claude.ai to generate Fat Tree Visualizer            #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday February 24th 2026 12:33:28 pm                       #
+#  Last Modified: Wednesday February 25th 2026 4:09:38 am                      #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -174,18 +174,28 @@ HW_SHAPES = {
 # ============================================================================
 # [NEW] Analytics helpers
 # ============================================================================
-def compute_analytics(nodes: list[dict], edges: list[tuple], profile: DatacenterProfile) -> dict:
-    """Derive key data-center metrics from the current topology."""
+def compute_analytics(
+    nodes: list[dict], edges: list[tuple], profile: DatacenterProfile, live_k: int = 0, live_depth: int = 0
+) -> dict:
+    """Derive key data-center metrics from the current topology.
+
+    live_k and live_depth are the *slider* values and take priority over
+    profile.k / profile.depth for any formula that must react to the UI.
+    """
     n_hosts = sum(1 for n in nodes if n["type"] == "host")
     n_sw = sum(1 for n in nodes if n["type"] != "host")
     n_cables = len(edges)
-    half_k = profile.k // 2
+
+    # Use live slider values when provided; fall back to profile constants
+    eff_k = live_k if live_k > 0 else profile.k
+    eff_depth = live_depth if live_depth > 0 else profile.depth
+    half_k = eff_k // 2
 
     # Bisection bandwidth (theoretical, non-blocking Close)
     bisection_tbps = round((n_hosts / 2) * profile.port_speed_gbps / 1000, 2)
 
-    # Average paths between pods (k/2 for depth-3 fat-tree)
-    avg_paths = half_k if profile.depth == 3 else 1
+    # Average paths between pods (k/2 for depth-3 fat-tree; 1 for shallower)
+    avg_paths = half_k if eff_depth == 3 else 1
 
     # Estimated cluster power
     hw_mix = profile.hw_mix or {"cpu": 1.0}
@@ -2561,7 +2571,7 @@ def update_analytics(k: int, depth: int, store: dict, overrides: dict) -> list:
     nodes, edges = build_fat_tree(k, depth)
     profile_key = store.get("dc_profile", "custom")
     profile = apply_overrides(PRESET_PROFILES.get(profile_key, PRESET_PROFILES["custom"]), overrides or {})
-    m = compute_analytics(nodes, edges, profile)
+    m = compute_analytics(nodes, edges, profile, live_k=k, live_depth=depth)
 
     def chip(label: Any, value: Any, color: str = "#4ecdc4") -> html.Div:
         return html.Div(
