@@ -18,6 +18,7 @@ services:
       DISPLAY: $DISPLAY
     ports:
       - "8050:8050"
+      - "8000:8000"
     volumes:
       - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates
       - /etc/ssl/certs:/etc/ssl/certs

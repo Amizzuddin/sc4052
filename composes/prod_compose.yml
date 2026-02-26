@@ -6,7 +6,6 @@ services:
       service: common_service
     image: amizzuddin/sc4052_assignment_1:latest
     container_name: assignment_1
-
     ports:
       - "8050:8050"
 
@@ -15,7 +14,9 @@ services:
   #   command: "tail -f /dev/null"
   #   container_name: assignment_2
 
-  # project:
-  #   image: amizzuddin/project:latest
-  #   container_name: project
-  #   <<: *production_common_service
+  project:
+    extends:
+      file: common_compose.yml
+      service: common_service
+    image: amizzuddin/project:latest
+    container_name: project

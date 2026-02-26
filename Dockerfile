@@ -25,8 +25,12 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     wget \
     python3-pip
 
-# Install development python packages
-COPY requirements.txt .
+# Install dependencies python packages
+COPY workspace/assignments/one/requirements.txt .
+RUN --mount=type=cache,id=pip,target=/root/.cache \
+    python3 -m pip install --upgrade -r requirements.txt
+
+COPY workspace/project/requirements.txt .
 RUN --mount=type=cache,id=pip,target=/root/.cache \
     python3 -m pip install --upgrade -r requirements.txt
 
@@ -45,7 +49,14 @@ FROM prod AS assignment_1
 
 EXPOSE 8050
 
-CMD ["python3", "assigments/one/main.py"]
+CMD ["python3", "assignments/one/main.py"]
+
+########################################## PRODUCTION IMAGE (project) ###########################################
+FROM prod AS project
+
+EXPOSE 8050
+
+# CMD ["python3", "assignments/one/main.py"]
 
 ############################################### DEVELOPMENT IMAGE ###############################################
 FROM base AS dev

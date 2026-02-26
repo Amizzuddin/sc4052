@@ -1,0 +1,9 @@
+# cicd-gen requirements
+anthropic>=0.25.0        # Claude API SDK
+click>=8.1.0             # CLI framework
+fastapi>=0.111.0         # Web service layer (optional, for SaaS mode)
+gitpython>=3.1.40        # Git repo interaction
+python-dotenv>=1.0.0     # Load .env files for local development
+PyYAML>=6.0              # YAML validation
+rich>=13.0.0             # Optional: rich terminal output (used in future web UI)
+uvicorn>=0.30.0          # ASGI server for FastAPI
