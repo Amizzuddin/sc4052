@@ -30,6 +30,10 @@ COPY workspace/assignments/one/requirements.txt .
 RUN --mount=type=cache,id=pip,target=/root/.cache \
     python3 -m pip install --upgrade -r requirements.txt
 
+COPY workspace/assignments/two/requirements.txt .
+RUN --mount=type=cache,id=pip,target=/root/.cache \
+    python3 -m pip install --upgrade -r requirements.txt
+
 COPY workspace/project/requirements.txt .
 RUN --mount=type=cache,id=pip,target=/root/.cache \
     python3 -m pip install --upgrade -r requirements.txt
@@ -50,6 +54,13 @@ FROM prod AS assignment_1
 EXPOSE 8050
 
 CMD ["python3", "assignments/one/main.py"]
+
+######################################## PRODUCTION IMAGE (assignment_1) ########################################
+FROM prod AS assignment_2
+
+EXPOSE 8050
+
+CMD ["python3", "assignments/two/app.py"]
 
 ########################################## PRODUCTION IMAGE (project) ###########################################
 FROM prod AS project

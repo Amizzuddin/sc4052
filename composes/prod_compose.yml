@@ -9,10 +9,11 @@ services:
     ports:
       - "8050:8050"
 
-  # assignment_2:
-  #   image: amizzuddin/sc4052_assignment_2:latest
-  #   command: "tail -f /dev/null"
-  #   container_name: assignment_2
+  assignment_2:
+    image: amizzuddin/sc4052_assignment_2:latest
+    container_name: assignment_2
+    ports:
+      - "8050:8050"
 
   project:
     extends:

@@ -4,7 +4,7 @@
 #  Author:        Amizzuddin Amin Chan
 #  Description:   <<ADD Description>>
 #  ---------------------------------------------------------------------------
-#  Last Modified: Wednesday February 25th 2026 6:48:07 am
+#  Last Modified: Friday February 27th 2026 7:28:13 am
 #  Modified By:   Amizzuddin Amin Chan
 #  ---------------------------------------------------------------------------
 #  HISTORY:
@@ -102,6 +102,15 @@ jobs:
 
       - name: PUSH Assignment_1 PRODUCTION Image to Registry
         run: ./run push prod assignment_1
+
+      - name: BUILD Assignment_1 PRODUCTION Image
+        run: ./run build prod assignment_2
+
+      # - name: TEST PRODUCTION Image
+      #   run: ./run test prod
+
+      - name: PUSH Assignment_1 PRODUCTION Image to Registry
+        run: ./run push prod assignment_2
 
       - name: BUILD Project PRODUCTION Image
         run: ./run build prod project
