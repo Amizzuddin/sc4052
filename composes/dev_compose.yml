@@ -16,6 +16,8 @@ services:
       - ALL
     environment:
       DISPLAY: $DISPLAY
+      PRE_COMMIT_HOME: "/root/${REPOSITORY}/.devcontainer/cache/pre-commit"
+      PIP_CACHE_DIR: "/root/${REPOSITORY}/.devcontainer/cache/pip"
     ports:
       - "8050:8050"
       - "8000:8000"

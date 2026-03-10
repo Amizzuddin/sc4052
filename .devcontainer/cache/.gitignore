@@ -1,0 +1,3 @@
+# Ignore everything in the cache directory, except for the pre-commit and pip cache directories
+*
+!.gitignore
