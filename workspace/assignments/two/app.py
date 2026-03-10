@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday February 27th 2026 7:23:56 am                         #
+#  Last Modified: Tuesday March 10th 2026 3:10:15 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -28,7 +28,7 @@ Integrates three modules into one interactive dashboard:
           then visualise which pages a GPTBot-style crawler should visit
           first, respecting robots.txt rules.
 
-  Tab 3 · GraphRAG Knowledge Retrieval
+  Tab 3 · GraphRAG Knowledge Retrieval (Disable)
           Build a knowledge graph from entity–relation–entity triples,
           set seed query entities, run Personalised PageRank, and see
           which nodes are most relevant to a multi-hop query.
@@ -858,195 +858,195 @@ tab2_layout = html.Div(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 3 — GraphRAG Knowledge Retrieval
+# TAB 3 — GraphRAG Knowledge Retrieval (Disable)
 # ═════════════════════════════════════════════════════════════════════════════
 
-tab3_layout = html.Div(
-    [
-        html.Div(
-            [
-                # ── Left: inputs ──
-                html.Div(
-                    [
-                        card(
-                            [
-                                html.H4(
-                                    "Knowledge Graph Triples",
-                                    style={
-                                        "color": C["text"],
-                                        "fontFamily": BODY_FONT,
-                                        "marginBottom": "8px",
-                                        "marginTop": "0",
-                                    },
-                                ),
-                                label("Format: entity | relation | entity  (one per line)"),
-                                dcc.Textarea(
-                                    id="t3-triples",
-                                    value=DEMO_KG_TRIPLES,
-                                    style={**TEXTAREA_STYLE, "minHeight": "260px"},
-                                ),
-                            ]
-                        ),
-                        card(
-                            [
-                                html.H4(
-                                    "Query",
-                                    style={
-                                        "color": C["text"],
-                                        "fontFamily": BODY_FONT,
-                                        "marginBottom": "8px",
-                                        "marginTop": "0",
-                                    },
-                                ),
-                                label("Seed entities (comma-separated)"),
-                                dcc.Input(id="t3-seeds", value=DEMO_KG_SEEDS, style=INPUT_STYLE),
-                                html.Div(style={"height": "14px"}),
-                                label("Teleportation probability p (query focus)"),
-                                dcc.Slider(
-                                    id="t3-p",
-                                    min=0.05,
-                                    max=0.95,
-                                    step=0.05,
-                                    value=0.25,
-                                    marks={
-                                        v: {"label": str(v), "style": {"color": C["muted"], "fontSize": "10px"}}
-                                        for v in [0.05, 0.25, 0.50, 0.75, 0.95]
-                                    },
-                                    tooltip={"placement": "bottom", "always_visible": True},
-                                ),
-                                html.Div(style={"height": "14px"}),
-                                label("Top-k nodes to retrieve"),
-                                dcc.Slider(
-                                    id="t3-k",
-                                    min=3,
-                                    max=15,
-                                    step=1,
-                                    value=8,
-                                    marks={
-                                        v: {"label": str(v), "style": {"color": C["muted"], "fontSize": "10px"}}
-                                        for v in [3, 5, 8, 10, 15]
-                                    },
-                                    tooltip={"placement": "bottom", "always_visible": True},
-                                ),
-                                html.Div(style={"height": "14px"}),
-                                html.Button("▶  Retrieve", id="t3-run", style=BUTTON_STYLE),
-                            ]
-                        ),
-                    ],
-                    style={"flex": "1", "marginRight": "20px"},
-                ),
-                # ── Right: outputs ──
-                html.Div(
-                    [
-                        card(
-                            [
-                                html.H4(
-                                    "Personalised PageRank Scores",
-                                    style={
-                                        "color": C["text"],
-                                        "fontFamily": BODY_FONT,
-                                        "marginBottom": "12px",
-                                        "marginTop": "0",
-                                    },
-                                ),
-                                dcc.Graph(id="t3-bar", style={"height": "280px"}, config={"displayModeBar": False}),
-                            ]
-                        ),
-                        card(
-                            [
-                                html.H4(
-                                    "Knowledge Graph (hover node for relations)",
-                                    style={
-                                        "color": C["text"],
-                                        "fontFamily": BODY_FONT,
-                                        "marginBottom": "8px",
-                                        "marginTop": "0",
-                                    },
-                                ),
-                                cyto.Cytoscape(
-                                    id="t3-cyto",
-                                    layout={
-                                        "name": "cose",
-                                        "randomize": False,
-                                        "nodeRepulsion": 12000,
-                                        "idealEdgeLength": 80,
-                                    },
-                                    style={"width": "100%", "height": "380px"},
-                                    stylesheet=[
-                                        {
-                                            "selector": "node",
-                                            "style": {
-                                                "label": "data(label)",
-                                                "font-size": "9px",
-                                                "color": C["text"],
-                                                "text-wrap": "wrap",
-                                                "text-max-width": "90px",
-                                                "font-family": BODY_FONT,
-                                                "background-color": "data(color)",
-                                                "width": "data(size)",
-                                                "height": "data(size)",
-                                                "border-width": "2px",
-                                                "border-color": C["border"],
-                                            },
-                                        },
-                                        {
-                                            "selector": "edge",
-                                            "style": {
-                                                "label": "data(label)",
-                                                "font-size": "8px",
-                                                "color": C["muted"],
-                                                "font-family": BODY_FONT,
-                                                "curve-style": "bezier",
-                                                "target-arrow-shape": "triangle",
-                                                "arrow-scale": 1.0,
-                                                "line-color": C["border"],
-                                                "target-arrow-color": C["border"],
-                                                "width": 1.2,
-                                                "text-rotation": "autorotate",
-                                                "opacity": 0.8,
-                                            },
-                                        },
-                                        {
-                                            "selector": ".seed",
-                                            "style": {
-                                                "border-color": C["highlight"],
-                                                "border-width": "3px",
-                                            },
-                                        },
-                                        {
-                                            "selector": ".top",
-                                            "style": {
-                                                "border-color": C["accent2"],
-                                                "border-width": "2px",
-                                            },
-                                        },
-                                    ],
-                                ),
-                                html.Div(id="t3-node-info", style={"marginTop": "8px", "minHeight": "32px"}),
-                            ]
-                        ),
-                        card(
-                            [
-                                html.H4(
-                                    "Retrieved Context (for LLM)",
-                                    style={
-                                        "color": C["text"],
-                                        "fontFamily": BODY_FONT,
-                                        "marginBottom": "8px",
-                                        "marginTop": "0",
-                                    },
-                                ),
-                                html.Div(id="t3-context"),
-                            ]
-                        ),
-                    ],
-                    style={"flex": "1.4"},
-                ),
-            ],
-            style={"display": "flex", "alignItems": "flex-start"},
-        ),
-    ]
-)
+# tab3_layout = html.Div(
+#     [
+#         html.Div(
+#             [
+#                 # ── Left: inputs ──
+#                 html.Div(
+#                     [
+#                         card(
+#                             [
+#                                 html.H4(
+#                                     "Knowledge Graph Triples",
+#                                     style={
+#                                         "color": C["text"],
+#                                         "fontFamily": BODY_FONT,
+#                                         "marginBottom": "8px",
+#                                         "marginTop": "0",
+#                                     },
+#                                 ),
+#                                 label("Format: entity | relation | entity  (one per line)"),
+#                                 dcc.Textarea(
+#                                     id="t3-triples",
+#                                     value=DEMO_KG_TRIPLES,
+#                                     style={**TEXTAREA_STYLE, "minHeight": "260px"},
+#                                 ),
+#                             ]
+#                         ),
+#                         card(
+#                             [
+#                                 html.H4(
+#                                     "Query",
+#                                     style={
+#                                         "color": C["text"],
+#                                         "fontFamily": BODY_FONT,
+#                                         "marginBottom": "8px",
+#                                         "marginTop": "0",
+#                                     },
+#                                 ),
+#                                 label("Seed entities (comma-separated)"),
+#                                 dcc.Input(id="t3-seeds", value=DEMO_KG_SEEDS, style=INPUT_STYLE),
+#                                 html.Div(style={"height": "14px"}),
+#                                 label("Teleportation probability p (query focus)"),
+#                                 dcc.Slider(
+#                                     id="t3-p",
+#                                     min=0.05,
+#                                     max=0.95,
+#                                     step=0.05,
+#                                     value=0.25,
+#                                     marks={
+#                                         v: {"label": str(v), "style": {"color": C["muted"], "fontSize": "10px"}}
+#                                         for v in [0.05, 0.25, 0.50, 0.75, 0.95]
+#                                     },
+#                                     tooltip={"placement": "bottom", "always_visible": True},
+#                                 ),
+#                                 html.Div(style={"height": "14px"}),
+#                                 label("Top-k nodes to retrieve"),
+#                                 dcc.Slider(
+#                                     id="t3-k",
+#                                     min=3,
+#                                     max=15,
+#                                     step=1,
+#                                     value=8,
+#                                     marks={
+#                                         v: {"label": str(v), "style": {"color": C["muted"], "fontSize": "10px"}}
+#                                         for v in [3, 5, 8, 10, 15]
+#                                     },
+#                                     tooltip={"placement": "bottom", "always_visible": True},
+#                                 ),
+#                                 html.Div(style={"height": "14px"}),
+#                                 html.Button("▶  Retrieve", id="t3-run", style=BUTTON_STYLE),
+#                             ]
+#                         ),
+#                     ],
+#                     style={"flex": "1", "marginRight": "20px"},
+#                 ),
+#                 # ── Right: outputs ──
+#                 html.Div(
+#                     [
+#                         card(
+#                             [
+#                                 html.H4(
+#                                     "Personalised PageRank Scores",
+#                                     style={
+#                                         "color": C["text"],
+#                                         "fontFamily": BODY_FONT,
+#                                         "marginBottom": "12px",
+#                                         "marginTop": "0",
+#                                     },
+#                                 ),
+#                                 dcc.Graph(id="t3-bar", style={"height": "280px"}, config={"displayModeBar": False}),
+#                             ]
+#                         ),
+#                         card(
+#                             [
+#                                 html.H4(
+#                                     "Knowledge Graph (hover node for relations)",
+#                                     style={
+#                                         "color": C["text"],
+#                                         "fontFamily": BODY_FONT,
+#                                         "marginBottom": "8px",
+#                                         "marginTop": "0",
+#                                     },
+#                                 ),
+#                                 cyto.Cytoscape(
+#                                     id="t3-cyto",
+#                                     layout={
+#                                         "name": "cose",
+#                                         "randomize": False,
+#                                         "nodeRepulsion": 12000,
+#                                         "idealEdgeLength": 80,
+#                                     },
+#                                     style={"width": "100%", "height": "380px"},
+#                                     stylesheet=[
+#                                         {
+#                                             "selector": "node",
+#                                             "style": {
+#                                                 "label": "data(label)",
+#                                                 "font-size": "9px",
+#                                                 "color": C["text"],
+#                                                 "text-wrap": "wrap",
+#                                                 "text-max-width": "90px",
+#                                                 "font-family": BODY_FONT,
+#                                                 "background-color": "data(color)",
+#                                                 "width": "data(size)",
+#                                                 "height": "data(size)",
+#                                                 "border-width": "2px",
+#                                                 "border-color": C["border"],
+#                                             },
+#                                         },
+#                                         {
+#                                             "selector": "edge",
+#                                             "style": {
+#                                                 "label": "data(label)",
+#                                                 "font-size": "8px",
+#                                                 "color": C["muted"],
+#                                                 "font-family": BODY_FONT,
+#                                                 "curve-style": "bezier",
+#                                                 "target-arrow-shape": "triangle",
+#                                                 "arrow-scale": 1.0,
+#                                                 "line-color": C["border"],
+#                                                 "target-arrow-color": C["border"],
+#                                                 "width": 1.2,
+#                                                 "text-rotation": "autorotate",
+#                                                 "opacity": 0.8,
+#                                             },
+#                                         },
+#                                         {
+#                                             "selector": ".seed",
+#                                             "style": {
+#                                                 "border-color": C["highlight"],
+#                                                 "border-width": "3px",
+#                                             },
+#                                         },
+#                                         {
+#                                             "selector": ".top",
+#                                             "style": {
+#                                                 "border-color": C["accent2"],
+#                                                 "border-width": "2px",
+#                                             },
+#                                         },
+#                                     ],
+#                                 ),
+#                                 html.Div(id="t3-node-info", style={"marginTop": "8px", "minHeight": "32px"}),
+#                             ]
+#                         ),
+#                         card(
+#                             [
+#                                 html.H4(
+#                                     "Retrieved Context (for LLM)",
+#                                     style={
+#                                         "color": C["text"],
+#                                         "fontFamily": BODY_FONT,
+#                                         "marginBottom": "8px",
+#                                         "marginTop": "0",
+#                                     },
+#                                 ),
+#                                 html.Div(id="t3-context"),
+#                             ]
+#                         ),
+#                     ],
+#                     style={"flex": "1.4"},
+#                 ),
+#             ],
+#             style={"display": "flex", "alignItems": "flex-start"},
+#         ),
+#     ]
+# )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1099,7 +1099,8 @@ app.layout = html.Div(
                     ]
                 ),
                 html.Div(
-                    "Power method · Closed form · AI Crawling · GraphRAG",
+                    # "Power method · Closed form · AI Crawling · GraphRAG",
+                    "Power method · Closed form · AI Crawling",
                     style={
                         "color": C["muted"],
                         "fontSize": "12px",
@@ -1124,7 +1125,7 @@ app.layout = html.Div(
             children=[
                 dcc.Tab(label="⚙  PageRank Engine", value="t1", style=TAB_STYLE, selected_style=TAB_SELECTED),
                 dcc.Tab(label="🤖  AI Crawler", value="t2", style=TAB_STYLE, selected_style=TAB_SELECTED),
-                dcc.Tab(label="🕸  GraphRAG Retrieval", value="t3", style=TAB_STYLE, selected_style=TAB_SELECTED),
+                # dcc.Tab(label="🕸  GraphRAG Retrieval", value="t3", style=TAB_STYLE, selected_style=TAB_SELECTED),
             ],
             style={"backgroundColor": C["surface"], "borderBottom": f"1px solid {C['border']}"},
         ),
@@ -1153,8 +1154,8 @@ def render_tab(tab: str) -> html.Div:
         return tab1_layout
     if tab == "t2":
         return tab2_layout
-    if tab == "t3":
-        return tab3_layout
+    # if tab == "t3":
+    #     return tab3_layout
     return html.Div()  # fallback for unknown tab
 
 
