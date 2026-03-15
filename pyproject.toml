@@ -9,3 +9,11 @@ line_length = 120
 default_section = "THIRDPARTY"
 known_third_party = []
 known_first_party = []
+
+[[tool.mypy.overrides]]
+module = "scipy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "dash_cytoscape.*"
+ignore_missing_imports = true
