@@ -37,7 +37,8 @@
                 },
                 {
                     "label": "Project",
-                    "value": "workspace/project/api.py"
+                    // "value": "workspace/project/api.py"
+                    "value": "workspace/project/dashboard.py"
                 }
             ]
         }

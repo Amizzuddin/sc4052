@@ -1,6 +1,8 @@
 # cicd-gen requirements
 anthropic>=0.25.0        # Claude API SDK
 click>=8.1.0             # CLI framework
+# dash>=2.17.0             # Dash web UI
+dash-bootstrap-components>=1.6.0  # Bootstrap styling for Dash
 fastapi>=0.111.0         # Web service layer (optional, for SaaS mode)
 gitpython>=3.1.40        # Git repo interaction
 python-dotenv>=1.0.0     # Load .env files for local development

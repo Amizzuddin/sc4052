@@ -22,7 +22,10 @@
         "ms-python.debugpy",
         "ms-python.black-formatter",
         "ms-python.flake8",
-        "ms-python.mypy-type-checker"
+        "ms-python.mypy-type-checker",
+        "ms-vscode.live-server",
+        "github.copilot",
+        "github.copilot-chat"
       ]
     }
   }
