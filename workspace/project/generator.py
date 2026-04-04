@@ -1,15 +1,50 @@
+################################################################################
+#  Filename:      project/generator.py                                         #
+#  Project:       SC4079 Cloud Computing                                       #
+#  Created Date:  Wednesday, February 25th 2026, 6:44:09 am                    #
+#  Author:        Amizzuddin Amin Chan                                         #
+#  Description:   <<ADD Description>>                                          #
+#  --------------------------------------------------------------------------- #
+#  Last Modified: Saturday April 4th 2026 4:09:50 am                           #
+#  Modified By:   Amizzuddin Amin Chan                                         #
+#  --------------------------------------------------------------------------- #
+#  HISTORY:                                                                    #
+#  Date         By    Comments                                                 #
+#  ----------   ---   -------------------------------------------------------- #
+################################################################################
+
 """
 generator.py
 ------------
-Builds structured prompts from scan results and calls the Claude API
-to generate (or refine) a CI/CD pipeline YAML configuration.
+Builds structured prompts from scan results and calls an LLM to
+generate (or refine) a CI/CD pipeline YAML configuration.
+
+Supported providers
+-------------------
+  gemini    Google Gemini Flash  — free tier (1 500 req/day)
+              https://aistudio.google.com/app/apikey
+  groq      Groq  (Llama 3.3)   — free tier (14 400 req/day)
+              https://console.groq.com
+  anthropic Anthropic Claude     — paid plan required
+              https://console.anthropic.com
 """
 
 import os
 import re
 from typing import Optional
 
-import anthropic
+# Provider packages are imported lazily inside each call function so that
+# missing optional packages only raise at call time, not at import time.
+
+# ── Supported LLM providers ─────────────────────────────────────────────────────
+
+SUPPORTED_PROVIDERS = ["gemini", "groq", "anthropic"]
+
+PROVIDER_DEFAULTS = {
+    "gemini": {"model": "gemini-2.0-flash", "max_tokens": 2048},
+    "groq": {"model": "llama-3.3-70b-versatile", "max_tokens": 2048},
+    "anthropic": {"model": "claude-opus-4-6", "max_tokens": 2048},
+}
 
 # ── Supported CI/CD platforms ─────────────────────────────────────────────────
 
@@ -209,22 +244,90 @@ Return the complete updated configuration now:"""
 # ── Claude API calls ──────────────────────────────────────────────────────────
 
 
-def _call_claude(prompt: str, max_tokens: int = 2048) -> str:
-    """Send a prompt to Claude and return the text response."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "ANTHROPIC_API_KEY environment variable is not set. "
-            "Export it before running: export ANTHROPIC_API_KEY='sk-ant-...'"
-        )
+def _call_gemini(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
+    """Call Google Gemini (free tier via AI Studio)."""
+    try:
+        import google.generativeai as genai  # type: ignore
+    except ImportError:
+        raise ImportError("google-generativeai is not installed. Run: pip install google-generativeai")
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(
+        PROVIDER_DEFAULTS["gemini"]["model"],
+        generation_config={"max_output_tokens": max_tokens},
+    )
+    response = model.generate_content(prompt)
+    return response.text.strip()
 
-    client = anthropic.Anthropic(api_key=api_key)
+
+def _call_groq(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
+    """Call Groq (free tier, Llama 3.3)."""
+    try:
+        from groq import Groq  # type: ignore
+    except ImportError:
+        raise ImportError("groq is not installed. Run: pip install groq")
+    client = Groq(api_key=api_key)
+    completion = client.chat.completions.create(
+        model=PROVIDER_DEFAULTS["groq"]["model"],
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+    )
+    return completion.choices[0].message.content.strip()
+
+
+def _call_anthropic(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
+    """Call Anthropic Claude."""
+    try:
+        import anthropic as _anthropic  # type: ignore
+    except ImportError:
+        raise ImportError("anthropic is not installed. Run: pip install anthropic")
+    client = _anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
-        model="claude-opus-4-6",
+        model=PROVIDER_DEFAULTS["anthropic"]["model"],
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
     return message.content[0].text.strip()
+
+
+def _call_llm(
+    prompt: str,
+    provider: str = "gemini",
+    api_key: str | None = None,
+    max_tokens: int = 2048,
+) -> str:
+    """
+    Dispatch to the appropriate LLM provider.
+
+    Priority for the API key:
+      1. *api_key* argument (supplied from the UI field)
+      2. Environment variable:
+           GEMINI_API_KEY / GROQ_API_KEY / ANTHROPIC_API_KEY
+    """
+    env_vars = {
+        "gemini": "GEMINI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+    }
+    resolved = (api_key or "").strip() or os.environ.get(env_vars.get(provider, ""), "")
+    if not resolved:
+        env_name = env_vars.get(provider, f"{provider.upper()}_API_KEY")
+        raise EnvironmentError(
+            f"No API key for provider '{provider}'. "
+            f"Provide it in the UI or set the {env_name} environment variable."
+        )
+
+    if provider == "gemini":
+        return _call_gemini(prompt, resolved, max_tokens)
+    if provider == "groq":
+        return _call_groq(prompt, resolved, max_tokens)
+    if provider == "anthropic":
+        return _call_anthropic(prompt, resolved, max_tokens)
+    raise ValueError(f"Unknown provider '{provider}'. Choose from: {SUPPORTED_PROVIDERS}")
+
+
+# kept for backward compatibility ──────────────────────────────────────────────────
+def _call_claude(prompt: str, max_tokens: int = 2048, api_key: str | None = None) -> str:
+    return _call_llm(prompt, provider="anthropic", api_key=api_key, max_tokens=max_tokens)
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -238,6 +341,8 @@ def generate_pipeline(
     scan: dict,
     platform: str = "github-actions",
     extra_requirements: str = "",
+    api_key: str | None = None,
+    provider: str = "gemini",
 ) -> str:
     """
     Generate a CI/CD pipeline config from scan results.
@@ -254,7 +359,7 @@ def generate_pipeline(
         raise ValueError(f"Unsupported platform '{platform}'. Choose from: {SUPPORTED_PLATFORMS}")
 
     prompt = build_generation_prompt(scan, platform, extra_requirements)
-    raw = _call_claude(prompt)
+    raw = _call_llm(prompt, provider=provider, api_key=api_key)
     return _strip_markdown_fences(raw)
 
 
@@ -262,6 +367,8 @@ def refine_pipeline(
     current_yaml: str,
     user_request: str,
     platform: str = "github-actions",
+    api_key: str | None = None,
+    provider: str = "gemini",
 ) -> str:
     """
     Refine an existing pipeline config based on a natural language request.
@@ -275,5 +382,5 @@ def refine_pipeline(
         Updated YAML string
     """
     prompt = build_refinement_prompt(current_yaml, user_request, platform)
-    raw = _call_claude(prompt)
+    raw = _call_llm(prompt, provider=provider, api_key=api_key)
     return _strip_markdown_fences(raw)
