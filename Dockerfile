@@ -67,7 +67,7 @@ FROM prod AS project
 
 EXPOSE 8050
 
-# CMD ["python3", "assignments/one/main.py"]
+CMD ["python3", "project/dashboard.py"]
 
 ############################################### DEVELOPMENT IMAGE ###############################################
 FROM base AS dev

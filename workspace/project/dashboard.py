@@ -1,26 +1,11 @@
 ################################################################################
 #  Filename:      project/dashboard.py                                         #
 #  Project:       SC4079 Cloud Computing                                       #
-#  Created Date:  Saturday, April 4th 2026, 2:59:45 am                         #
-#  Author:        Amizzuddin Amin Chan                                         #
-#  Description:   <<ADD Description>>                                          #
-#  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 4:17:59 am                           #
-#  Modified By:   Amizzuddin Amin Chan                                         #
-#  --------------------------------------------------------------------------- #
-#  HISTORY:                                                                    #
-#  Date         By    Comments                                                 #
-#  ----------   ---   -------------------------------------------------------- #
-################################################################################
-
-################################################################################
-#  Filename:      project/dashboard.py                                         #
-#  Project:       SC4079 Cloud Computing                                       #
 #  Created Date:  Saturday, April 4th 2026, 12:12:13 am                        #
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 4:03:47 am                           #
+#  Last Modified: Saturday April 4th 2026 1:30:05 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -53,10 +38,10 @@ Then open http://localhost:8050
 
 import os
 import re
-import shutil
 import sys
 import tempfile
-import urllib.parse
+import threading
+import uuid
 from pathlib import Path
 
 # ── Make sure sibling modules are importable when run directly ────────────────
@@ -65,54 +50,44 @@ sys.path.insert(0, str(Path(__file__).parent))
 import dash
 import dash_bootstrap_components as dbc
 import git
-from dash import Input, Output, State, dcc, html
+from ai_handler import (
+    _ci_cancel_flags,
+    _ci_watch_lock,
+    _ci_watch_results,
+    _parse_github_repo,
+    _sanitize_expressions,
+    _sanitize_runner,
+    _watch_ci_and_heal,
+)
+from dash import Input, Output, State, ctx, dcc, html
+from dash.exceptions import PreventUpdate
+from docker_handler import DEFAULT_DOCKER_BASE_IMAGE, _generate_compose, _generate_dockerfile
 from generator import SUPPORTED_PLATFORMS, SUPPORTED_PROVIDERS, generate_pipeline
+from git_handler import (
+    _cleanup,
+    _commit_on_branch,
+    _inject_token,
+    _is_ssh_url,
+    _push_branch,
+    _safe_url,
+)
 from scanner import scan_repo
 from writer import write_config
 
-# ── Auth helpers ─────────────────────────────────────────────────────────────
+# ── Handler imports ────────────────────────────────────────────────────────────────
 
-
-def _is_ssh_url(url: str) -> bool:
-    """Return True for git@host:owner/repo style URLs."""
-    return bool(re.match(r"^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+:", url.strip()))
-
-
-def _inject_token(https_url: str, token: str) -> str:
-    """
-    Embed *token* into *https_url* as a URL credential so gitpython can
-    authenticate without an interactive prompt.
-
-    GitHub  : https://<token>@github.com/owner/repo.git
-    GitLab  : https://oauth2:<token>@gitlab.com/owner/repo.git
-    Generic : https://<token>@host/...
-    """
-    parsed = urllib.parse.urlparse(https_url)
-    host = parsed.netloc.lower()
-    if "gitlab" in host:
-        netloc = f"oauth2:{token}@{host}"
-    else:
-        netloc = f"{token}@{host}"
-    return urllib.parse.urlunparse(parsed._replace(netloc=netloc))
-
-
-def _safe_url(https_url: str) -> str:
-    """Strip credentials from a URL so it is safe to display."""
-    parsed = urllib.parse.urlparse(https_url)
-    safe_netloc = re.sub(r"^[^@]+@", "", parsed.netloc)
-    return urllib.parse.urlunparse(parsed._replace(netloc=safe_netloc))
-
-
-# ── Constants ─────────────────────────────────────────────────────────────────
 
 LANGUAGES = [
     "python",
+    "typescript",
     "node",
     "go",
     "java",
     "rust",
     "ruby",
     "php",
+    "bash",
+    "kotlin",
     "dotnet",
 ]
 
@@ -180,11 +155,13 @@ PLATFORM_LABELS = {
 
 # ── App setup ─────────────────────────────────────────────────────────────────
 
+
 app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.FLATLY],
     title="cicd-gen",
 )
+app.config.suppress_callback_exceptions = True
 
 # ── Layout helpers ────────────────────────────────────────────────────────────
 
@@ -442,15 +419,66 @@ app.layout = dbc.Container(
                         [
                             dbc.Col(
                                 [
-                                    dbc.Label("Programming Language  (optional override)"),
-                                    dcc.Dropdown(
-                                        id="language-dropdown",
-                                        options=[{"label": l.capitalize(), "value": l} for l in LANGUAGES],
-                                        placeholder="Use auto-detected language",
-                                        clearable=True,
+                                    dbc.Label("Programming Language(s)"),
+                                    dbc.ButtonGroup(
+                                        [
+                                            dbc.Button(
+                                                "Select All",
+                                                id="lang-select-all",
+                                                size="sm",
+                                                color="outline-secondary",
+                                                n_clicks=0,
+                                            ),
+                                            dbc.Button(
+                                                "Deselect All",
+                                                id="lang-deselect-all",
+                                                size="sm",
+                                                color="outline-secondary",
+                                                n_clicks=0,
+                                            ),
+                                        ],
+                                        className="mb-2",
+                                    ),
+                                    dbc.Row(
+                                        [
+                                            dbc.Col(
+                                                dbc.Checklist(
+                                                    id="language-checklist",
+                                                    options=[
+                                                        {"label": l.capitalize(), "value": l}
+                                                        for l in LANGUAGES[: len(LANGUAGES) // 2 + len(LANGUAGES) % 2]
+                                                    ],
+                                                    value=[],
+                                                    persistence=True,
+                                                    persistence_type="session",
+                                                ),
+                                                width=6,
+                                            ),
+                                            dbc.Col(
+                                                dbc.Checklist(
+                                                    id="language-checklist-2",
+                                                    options=[
+                                                        {"label": l.capitalize(), "value": l}
+                                                        for l in LANGUAGES[len(LANGUAGES) // 2 + len(LANGUAGES) % 2 :]
+                                                    ],
+                                                    value=[],
+                                                    persistence=True,
+                                                    persistence_type="session",
+                                                ),
+                                                width=6,
+                                            ),
+                                        ],
+                                        className="mb-2",
+                                    ),
+                                    dbc.Input(
+                                        id="language-custom",
+                                        placeholder="Other languages, comma-separated  e.g. bash, kotlin",
+                                        type="text",
+                                        size="sm",
                                         persistence=True,
                                         persistence_type="session",
                                     ),
+                                    dbc.FormText("Tick auto-detected language(s) above, " "or type custom ones below."),
                                 ],
                                 md=6,
                                 className="mb-3",
@@ -481,11 +509,49 @@ app.layout = dbc.Container(
                                     dbc.Label("Docker"),
                                     dbc.Checklist(
                                         id="docker-toggle",
-                                        options=[{"label": " Generate a Docker build & push step", "value": "docker"}],
+                                        options=[
+                                            {
+                                                "label": " Generate a Dockerfile + CI build & push step",
+                                                "value": "docker",
+                                            }
+                                        ],
                                         value=[],
                                         switch=True,
                                         persistence=True,
                                         persistence_type="session",
+                                    ),
+                                    # Docker options — shown only when Docker is enabled
+                                    html.Div(
+                                        id="docker-options-row",
+                                        style={"display": "none"},
+                                        children=[
+                                            dbc.Label("Base Image", className="mt-2 small fw-semibold"),
+                                            dbc.Input(
+                                                id="docker-base-image",
+                                                placeholder=f"e.g. {DEFAULT_DOCKER_BASE_IMAGE}",
+                                                value=DEFAULT_DOCKER_BASE_IMAGE,
+                                                type="text",
+                                                size="sm",
+                                                className="mb-1",
+                                                persistence=True,
+                                                persistence_type="session",
+                                            ),
+                                            dbc.FormText(
+                                                "A single multi-language image is generated from this base. "
+                                                "Use a pinned tag (e.g. ubuntu:22.04) for reproducibility.",
+                                                className="mb-2",
+                                            ),
+                                            dbc.Checklist(
+                                                id="docker-compose-toggle",
+                                                options=[
+                                                    {"label": " Also generate docker-compose.yml", "value": "compose"}
+                                                ],
+                                                value=[],
+                                                switch=True,
+                                                persistence=True,
+                                                persistence_type="session",
+                                            ),
+                                        ],
                                     ),
                                 ],
                                 md=6,
@@ -547,12 +613,34 @@ app.layout = dbc.Container(
                                             "value": "push",
                                         }
                                     ],
-                                    value=[],
+                                    value=["push"],
                                     switch=True,
                                     persistence=True,
                                     persistence_type="session",
                                 ),
                                 className="d-flex align-items-center",
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Checklist(
+                                        id="watch-ci-toggle",
+                                        options=[
+                                            {
+                                                "label": " Watch CI & auto-fix failures",
+                                                "value": "watch",
+                                            }
+                                        ],
+                                        value=["watch"],
+                                        switch=True,
+                                        persistence=True,
+                                        persistence_type="session",
+                                    ),
+                                    dbc.FormText(
+                                        "GitHub Actions only. Requires a token. "
+                                        "Monitors the run and pushes fixes (up to 2 attempts)."
+                                    ),
+                                ],
+                                className="d-flex flex-column justify-content-center",
                             ),
                         ],
                         align="center",
@@ -562,18 +650,62 @@ app.layout = dbc.Container(
             style={"display": "none"},
         ),
         # ── Generation result ──────────────────────────────────────────────────
-        html.Div(id="generate-status"),
-        html.Div(id="yaml-preview"),
+        dcc.Loading(
+            id="gen-loading",
+            type="circle",
+            color="#2c7a2c",
+            style={"marginTop": "8px"},
+            children=[
+                html.Div(id="generate-status"),
+                html.Div(id="yaml-preview"),
+            ],
+        ),
+        # CI watch progress card (polled every 8 s)
+        html.Div(id="ci-watch-status"),
+        # Cancel button — statically in DOM, shown/hidden by callbacks
+        html.Div(
+            dbc.Button(
+                "🚫 Cancel Watch",
+                id="cancel-watch-btn",
+                size="sm",
+                color="secondary",
+                outline=True,
+                n_clicks=0,
+            ),
+            id="cancel-btn-row",
+            style={"display": "none"},
+        ),
         dcc.Download(id="yaml-download"),
         # ── Hidden stores (memory-only — cleared on page refresh) ──────────────
         # Holds: {scan, clone_path, url, is_empty, auth_type}
         dcc.Store(id="scan-state", storage_type="memory"),
+        # Holds: {watch_id} for CI polling
+        dcc.Store(id="ci-watch-state", storage_type="memory"),
+        # Polls every 8 s while CI watch is active
+        dcc.Interval(id="ci-watch-interval", interval=8_000, n_intervals=0, disabled=True),
     ],
     className="mt-3",
 )
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────────
+
+
+@app.callback(
+    Output("language-checklist", "value"),
+    Output("language-checklist-2", "value"),
+    Input("lang-select-all", "n_clicks"),
+    Input("lang-deselect-all", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_all_languages(_select, _deselect):
+    """Select or deselect all language checkboxes."""
+    from dash import ctx
+
+    half = len(LANGUAGES) // 2 + len(LANGUAGES) % 2
+    if ctx.triggered_id == "lang-select-all":
+        return LANGUAGES[:half], LANGUAGES[half:]
+    return [], []
 
 
 @app.callback(
@@ -635,6 +767,15 @@ def update_provider_info(provider):
 def toggle_token_row(auth_type):
     """Show the token field only when HTTPS + private is selected."""
     return {"display": "block"} if auth_type == "https-token" else {"display": "none"}
+
+
+@app.callback(
+    Output("docker-options-row", "style"),
+    Input("docker-toggle", "value"),
+)
+def toggle_docker_options(docker_values):
+    """Show Docker base-image and compose options only when Docker is enabled."""
+    return {"display": "block"} if "docker" in (docker_values or []) else {"display": "none"}
 
 
 @app.callback(
@@ -781,14 +922,21 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     Output("generate-status", "children"),
     Output("yaml-preview", "children"),
     Output("yaml-download", "data"),
+    Output("ci-watch-state", "data", allow_duplicate=True),
+    Output("ci-watch-interval", "disabled", allow_duplicate=True),
     Input("generate-btn", "n_clicks"),
     State("scan-state", "data"),
-    State("language-dropdown", "value"),
+    State("language-checklist", "value"),
+    State("language-checklist-2", "value"),
+    State("language-custom", "value"),
     State("docker-toggle", "value"),
+    State("docker-base-image", "value"),
+    State("docker-compose-toggle", "value"),
     State("platform-dropdown", "value"),
     State("branch-input", "value"),
     State("extra-requirements", "value"),
     State("push-toggle", "value"),
+    State("watch-ci-toggle", "value"),
     State("token-input", "value"),
     State("api-key-input", "value"),
     State("llm-provider-dropdown", "value"),
@@ -798,18 +946,24 @@ def generate_pipeline_cb(
     n_clicks,
     scan_state,
     language,
+    language2,
+    language_custom,
     docker_values,
+    docker_base_image,
+    docker_compose_values,
     platform,
     branch_name,
     extra_requirements,
     push_values,
+    watch_ci_values,
     token,
     api_key,
     provider,
 ):
     """Generate CI/CD YAML, commit on feature branch, optionally push."""
+    _no_watch = (None, True)  # (ci-watch-state data, interval disabled)
     if not scan_state:
-        return _alert("Please scan a repository first.", "warning"), None, None
+        return _alert("Please scan a repository first.", "warning"), None, None, *_no_watch
 
     clone_path = scan_state.get("clone_path")
     scan = scan_state.get("scan", {})
@@ -821,24 +975,58 @@ def generate_pipeline_cb(
             _alert("Clone directory not found. Please scan the repository again.", "warning"),
             None,
             None,
+            *_no_watch,
         )
 
     branch_name = (branch_name or DEFAULT_BRANCH).strip()
     platform = platform or "github-actions"
     wants_docker = "docker" in (docker_values or [])
+    wants_compose = "compose" in (docker_compose_values or [])
     wants_push = "push" in (push_values or [])
     extra_requirements = (extra_requirements or "").strip()
 
-    if language:
+    if language or language2 or language_custom:
+        # Merge both checklist columns + freeform custom input
+        langs = list(language or []) + [l for l in (language2 or []) if l not in (language or [])]
+        if language_custom:
+            for tok in language_custom.split(","):
+                tok = tok.strip().lower()
+                if tok and tok not in langs:
+                    langs.append(tok)
+        if langs:
+            scan = dict(scan)
+            scan["language"] = langs[0]  # primary language for defaults
+            scan["languages"] = langs  # full list passed to prompt
+    elif scan.get("language") and not scan.get("languages"):
         scan = dict(scan)
-        scan["language"] = language
+        scan["languages"] = [scan["language"]]
     if wants_docker and "docker" not in (scan.get("deploy_targets") or []):
         scan = dict(scan)
         scan["deploy_targets"] = list(scan.get("deploy_targets") or []) + ["docker"]
 
+    # ── Generate Dockerfile / compose content ────────────────────────────────────────
+    dockerfile_content: str | None = None
+    compose_content: str | None = None
+    extra_files: dict[str, str] = {}
+    if wants_docker:
+        raw_lang = scan.get("languages") or ([scan.get("language")] if scan.get("language") else [])
+        docker_langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
+        base_image = (docker_base_image or DEFAULT_DOCKER_BASE_IMAGE).strip()
+        dockerfile_content = _generate_dockerfile(docker_langs, base_image)
+        extra_files["Dockerfile"] = dockerfile_content
+        if wants_compose:
+            image_name = scan.get("repo_name") or "app"
+            compose_content = _generate_compose(image_name, docker_langs)
+            extra_files["docker-compose.yml"] = compose_content
+
     extras_parts = []
     if wants_docker:
-        extras_parts.append("Include a step to build and push a Docker image.")
+        base_image = (docker_base_image or DEFAULT_DOCKER_BASE_IMAGE).strip()
+        extras_parts.append(
+            f"A Dockerfile is committed in the repo root (base image: {base_image}, single image "
+            "covering all selected languages). In the CI Docker build step use: "
+            "docker build -t <image>:$TAG . — do NOT reference per-language runtimes as base images."
+        )
     if extra_requirements:
         extras_parts.append(extra_requirements)
     full_extras = "  ".join(extras_parts)
@@ -866,24 +1054,55 @@ def generate_pipeline_cb(
             ),
             None,
             None,
+            *_no_watch,
         )
 
     # ── Generate ──────────────────────────────────────────────────────────────
     try:
         yaml_content = generate_pipeline(scan, platform, full_extras, api_key=resolved_api_key, provider=provider)
+        yaml_content = _sanitize_expressions(yaml_content, platform)
+        yaml_content = _sanitize_runner(yaml_content, platform)
     except (EnvironmentError, ImportError) as exc:
-        return _alert(str(exc), "danger"), None, None
+        msg = str(exc)
+        # Render quota/rate-limit errors with structured guidance
+        if "quota" in msg.lower() or "rate limit" in msg.lower() or "429" in msg:
+            lines = [s.strip() for s in msg.splitlines() if s.strip()]
+            bullets = [html.Li(l.lstrip("•").strip()) for l in lines if l.startswith("•")]
+            summary = next((l for l in lines if not l.startswith("•")), msg)
+            return (
+                dbc.Alert(
+                    [
+                        html.Strong(f"{provider.capitalize()} quota / rate-limit error. "),
+                        html.Span(summary),
+                        html.Ul(bullets, className="mt-2 mb-1") if bullets else None,
+                        html.Hr(className="my-2"),
+                        html.Span("Tip: switch to "),
+                        html.Strong("Groq (Llama 3.3)"),
+                        html.Span(
+                            " — free tier, 14 400 req/day, no daily cap issues. "
+                            "Select it in the AI Provider section above."
+                        ),
+                    ],
+                    color="warning",
+                ),
+                None,
+                None,
+                *_no_watch,
+            )
+        return _alert(msg, "danger"), None, None, *_no_watch
     except Exception as exc:
-        return _alert(f"Generation error: {exc}", "danger"), None, None
+        return _alert(f"Generation error: {exc}", "danger"), None, None, *_no_watch
 
     # ── Commit on feature branch ──────────────────────────────────────────────
     try:
         repo = git.Repo(clone_path)
-        commit_msg = _commit_on_branch(repo, clone_path, branch_name, platform, yaml_content)
+        commit_msg = _commit_on_branch(
+            repo, clone_path, branch_name, platform, yaml_content, scan, extra_files=extra_files
+        )
     except Exception as exc:
-        return _alert(f"Git commit error: {exc}", "danger"), None, None
+        return _alert(f"Git commit error: {exc}", "danger"), None, None, *_no_watch
 
-    # ── Optionally push ───────────────────────────────────────────────────────
+    # ── Push ──────────────────────────────────────────────────────────────────
     push_msg = ""
     if wants_push:
         try:
@@ -902,76 +1121,252 @@ def generate_pipeline_cb(
                 err = err.replace(token, "***")
             push_msg = f"  ⚠ Push failed: {err}"
 
+    # ── Start CI watcher if conditions are met ─────────────────────────────────
+    watch_state = None
+    interval_disabled = True
+    wants_watch = "watch" in (watch_ci_values or [])
+    push_succeeded = "pushed to remote" in push_msg
+    can_watch = wants_watch and push_succeeded and platform == "github-actions" and "github.com" in repo_url and token
+    if can_watch:
+        ghr = _parse_github_repo(repo_url)
+        if ghr:
+            owner, repo_name = ghr
+            watch_id = str(uuid.uuid4())
+            cancel_ev = threading.Event()
+            with _ci_watch_lock:
+                _ci_watch_results[watch_id] = {
+                    "messages": ["CI watcher started — waiting for GitHub Actions run…"],
+                    "steps": [
+                        {"label": "Waiting for Actions run to appear", "status": "running"},
+                        {"label": "CI run in progress", "status": "pending"},
+                    ],
+                    "status": "watching",
+                    "done": False,
+                    "attempt": 1,
+                    "max_retries": 2,
+                    "progress": 5,
+                }
+            _ci_cancel_flags[watch_id] = cancel_ev
+            threading.Thread(
+                target=_watch_ci_and_heal,
+                kwargs=dict(
+                    watch_id=watch_id,
+                    owner=owner,
+                    repo_name=repo_name,
+                    branch_name=branch_name,
+                    token=token,
+                    clone_path=clone_path,
+                    platform=platform,
+                    scan=scan,
+                    provider=provider,
+                    api_key=resolved_api_key,
+                    cancel_event=cancel_ev,
+                ),
+                daemon=True,
+            ).start()
+            watch_state = {"watch_id": watch_id}
+            interval_disabled = False
+
     # ── Build output ──────────────────────────────────────────────────────────
+    # Construct a GitHub compare / PR link when possible
+    github_link = None
+    if "github.com" in repo_url and "pushed" in push_msg:
+        clean_url = repo_url.rstrip("/").removesuffix(".git")
+        # Strip any embedded token from the display URL
+        clean_url = re.sub(r"https://[^@]+@", "https://", clean_url)
+        pr_url = f"{clean_url}/compare/{branch_name}?expand=1"
+        github_link = html.Span(["  ", html.A("Open Pull Request on GitHub →", href=pr_url, target="_blank")])
+
     status = dbc.Alert(
-        [html.Strong("Pipeline generated!  "), commit_msg + push_msg],
+        [html.Strong("Pipeline generated!  "), commit_msg + push_msg, github_link],
         color="success",
         dismissable=True,
     )
 
     filename = Path(clone_path).name + "_pipeline.yml"
-    preview = _section(
-        f"Generated Pipeline  ·  {PLATFORM_LABELS.get(platform, platform)}",
-        [
-            html.A(
-                dbc.Button("⬇ Download YAML", color="outline-secondary", size="sm", className="mb-2"),
-                id="download-btn",
-                href="#",
-            ),
+    preview_tabs = [
+        dbc.Tab(
             dcc.Markdown(
                 f"```yaml\n{yaml_content}\n```",
                 style={"maxHeight": "500px", "overflowY": "auto"},
             ),
+            label=f"CI/CD Pipeline  ·  {PLATFORM_LABELS.get(platform, platform)}",
+        ),
+    ]
+    if dockerfile_content:
+        preview_tabs.append(
+            dbc.Tab(
+                dcc.Markdown(
+                    f"```dockerfile\n{dockerfile_content}\n```",
+                    style={"maxHeight": "500px", "overflowY": "auto"},
+                ),
+                label="Dockerfile",
+            )
+        )
+    if compose_content:
+        preview_tabs.append(
+            dbc.Tab(
+                dcc.Markdown(
+                    f"```yaml\n{compose_content}\n```",
+                    style={"maxHeight": "500px", "overflowY": "auto"},
+                ),
+                label="docker-compose.yml",
+            )
+        )
+    preview = _section(
+        "Generated Files",
+        [
+            html.A(
+                dbc.Button("⬇ Download CI/CD YAML", color="outline-secondary", size="sm", className="mb-2"),
+                id="download-btn",
+                href="#",
+            ),
+            dbc.Tabs(preview_tabs),
         ],
     )
 
-    return status, preview, dcc.send_string(yaml_content, filename=filename)
+    return status, preview, dcc.send_string(yaml_content, filename=filename), watch_state, interval_disabled
 
 
-# ── Git helpers ───────────────────────────────────────────────────────────────
+@app.callback(
+    Output("ci-watch-status", "children"),
+    Output("ci-watch-interval", "disabled"),
+    Output("ci-watch-state", "data"),
+    Output("cancel-btn-row", "style"),
+    Input("ci-watch-interval", "n_intervals"),
+    State("ci-watch-state", "data"),
+)
+def poll_ci_watch_status(n_intervals, watch_state):
+    """Read background CI-watch progress and update the status card."""
+    _hidden = {"display": "none"}
+    _visible = {"display": "inline-block", "marginTop": "8px"}
+    if not watch_state or not watch_state.get("watch_id"):
+        return None, True, watch_state, _hidden
+
+    watch_id = watch_state["watch_id"]
+    with _ci_watch_lock:
+        entry = dict(_ci_watch_results.get(watch_id, {}))
+    if not entry:
+        return None, True, watch_state, _hidden
+
+    messages = entry.get("messages", [])
+    steps = entry.get("steps", [])
+    done = entry.get("done", False)
+    status = entry.get("status", "watching")
+    progress = entry.get("progress", 0)
+    attempt = entry.get("attempt", 1)
+    max_retries = entry.get("max_retries", 2)
+
+    color_map = {
+        "passed": "success",
+        "gave_up": "danger",
+        "error": "warning",
+        "watching": "info",
+        "cancelled": "secondary",
+    }
+    color = color_map.get(status, "info")
+
+    title_map = {
+        "passed": "✅ CI passed!",
+        "gave_up": "❌ CI auto-fix gave up",
+        "error": "⚠ CI watcher error",
+        "watching": f"⏳ Watching CI…  (attempt {attempt}/{max_retries + 1})",
+        "cancelled": "🚫 Watch cancelled",
+    }
+    title = title_map.get(status, "CI watch")
+
+    # ── Progress bar ─────────────────────────────────────────────────────────────
+    progress_bar = dbc.Progress(
+        value=progress,
+        striped=not done,
+        animated=not done,
+        color=color if done else "info",
+        style={"height": "6px"},
+        className="mb-2",
+    )
+
+    # ── Steps timeline ──────────────────────────────────────────────────────────
+    step_icons = {"pending": "○", "running": "▶", "passed": "✅", "failed": "❌", "skipped": "−"}
+    step_colors = {
+        "pending": "text-muted",
+        "running": "text-primary fw-semibold",
+        "passed": "text-success",
+        "failed": "text-danger",
+        "skipped": "text-muted",
+    }
+    step_items = [
+        html.Div(
+            [
+                html.Span(step_icons.get(s["status"], "○"), className="me-2"),
+                html.Span(s["label"], className=step_colors.get(s["status"], "")),
+            ],
+            style={"fontSize": "0.83rem", "marginBottom": "2px"},
+        )
+        for s in steps
+    ]
+
+    # ── Log tail ─────────────────────────────────────────────────────────────────────
+    log_tail = html.Details(
+        [
+            html.Summary("Show log", style={"cursor": "pointer", "fontSize": "0.8rem"}),
+            html.Pre(
+                "\n".join(messages[-25:]),
+                style={
+                    "maxHeight": "180px",
+                    "overflowY": "auto",
+                    "fontSize": "0.73rem",
+                    "marginTop": "4px",
+                    "background": "#f8f9fa",
+                    "padding": "6px",
+                    "borderRadius": "4px",
+                },
+            ),
+        ],
+        style={"marginTop": "4px"},
+    )
+
+    card = dbc.Card(
+        dbc.CardBody(
+            [html.Strong(title), progress_bar, html.Div(step_items, className="mb-1"), log_tail],
+            className="py-2 px-3",
+        ),
+        className="mt-2",
+        style={"borderLeft": f"4px solid var(--bs-{color})"},
+    )
+
+    cancel_style = _hidden if done else _visible
+    return card, done, (None if done else watch_state), cancel_style
 
 
-def _commit_on_branch(repo: git.Repo, clone_path: str, branch_name: str, platform: str, yaml_content: str) -> str:
-    """Write the generated config and commit it on *branch_name*."""
-    is_empty = len(repo.heads) == 0
-    output_path = write_config(yaml_content, clone_path, platform)
-    rel = output_path.relative_to(clone_path)
-
-    if is_empty:
-        repo.git.symbolic_ref("HEAD", f"refs/heads/{branch_name}")
-        repo.index.add([str(rel)])
-        repo.index.commit("ci: bootstrap CI/CD pipeline via cicd-gen")
-        return f"Initial commit on branch '{branch_name}'. File: {rel}."
-
-    if branch_name in [h.name for h in repo.heads]:
-        repo.git.checkout(branch_name)
-        created = False
-    else:
-        repo.git.checkout("-b", branch_name)
-        created = True
-
-    repo.index.add([str(rel)])
-    repo.index.commit("ci: add CI/CD pipeline via cicd-gen")
-    return f"Branch '{branch_name}' {'created' if created else 'updated'}. File: {rel}."
-
-
-def _push_branch(repo: git.Repo, push_url: str, branch_name: str, auth_type: str) -> None:
-    """Push *branch_name* to the remote."""
-    env = dict(os.environ)
-    if auth_type == "ssh" or _is_ssh_url(push_url):
-        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
-    origin = repo.remote("origin")
-    origin.set_url(push_url)
-    origin.push(refspec=f"{branch_name}:{branch_name}", env=env)
-
-
-def _cleanup(path: str) -> None:
-    """Remove a temporary clone directory, ignoring errors."""
-    try:
-        if path and Path(path).exists():
-            shutil.rmtree(path, ignore_errors=True)
-    except Exception:
-        pass
+@app.callback(
+    Output("ci-watch-status", "children", allow_duplicate=True),
+    Output("ci-watch-interval", "disabled", allow_duplicate=True),
+    Output("ci-watch-state", "data", allow_duplicate=True),
+    Output("cancel-btn-row", "style", allow_duplicate=True),
+    Input("cancel-watch-btn", "n_clicks"),
+    State("ci-watch-state", "data"),
+    prevent_initial_call=True,
+)
+def cancel_ci_watch(n_clicks, watch_state):
+    """Signal the background watcher to stop."""
+    if not n_clicks or not watch_state or not watch_state.get("watch_id"):
+        raise PreventUpdate
+    watch_id = watch_state["watch_id"]
+    cancel_ev = _ci_cancel_flags.get(watch_id)
+    if cancel_ev:
+        cancel_ev.set()
+    with _ci_watch_lock:
+        entry = _ci_watch_results.get(watch_id, {})
+        entry["status"] = "cancelled"
+        entry["done"] = True
+        entry.get("messages", []).append("🚫 Cancelled by user.")
+        entry["progress"] = 100
+    return (
+        dbc.Alert("🚫 CI watch cancelled by user.", color="secondary", dismissable=True, className="mt-2"),
+        True,
+        None,
+        {"display": "none"},
+    )
 
 
 # ── Dev runner ────────────────────────────────────────────────────────────────

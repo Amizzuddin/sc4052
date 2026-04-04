@@ -25,7 +25,8 @@
         "ms-python.mypy-type-checker",
         "ms-vscode.live-server",
         "github.copilot",
-        "github.copilot-chat"
+        "github.copilot-chat",
+        "hediet.vscode-drawio"
       ]
     }
   }

@@ -1,3 +1,18 @@
+################################################################################
+#  Filename:      project/writer.py                                            #
+#  Project:       SC4079 Cloud Computing                                       #
+#  Created Date:  Wednesday, February 25th 2026, 6:44:09 am                    #
+#  Author:        Amizzuddin Amin Chan                                         #
+#  Description:   <<ADD Description>>                                          #
+#  --------------------------------------------------------------------------- #
+#  Last Modified: Saturday April 4th 2026 10:05:02 am                          #
+#  Modified By:   Amizzuddin Amin Chan                                         #
+#  --------------------------------------------------------------------------- #
+#  HISTORY:                                                                    #
+#  Date         By    Comments                                                 #
+#  ----------   ---   -------------------------------------------------------- #
+################################################################################
+
 """
 writer.py
 ---------
@@ -61,6 +76,12 @@ def write_config(
     backup_path = None
     if overwrite:
         backup_path = backup_existing(output_path)
+
+    # Always end with exactly one newline — GitHub Actions YAML parser
+    # drops the last step's `run:` block when there is no trailing newline,
+    # which causes the cryptic "not enough info" validation error.
+    if not yaml_content.endswith("\n"):
+        yaml_content += "\n"
 
     output_path.write_text(yaml_content, encoding="utf-8")
 

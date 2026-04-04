@@ -1,0 +1,343 @@
+<mxfile host="Electron" modified="2026-04-04T00:00:00.000Z" agent="cicd-gen-doc" version="21.0.0" type="device">
+  <diagram id="main" name="cicd-gen Architecture">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  TITLE                                                   -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="title" value="cicd-gen — AI-Powered CI/CD Pipeline Generator" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;fontColor=#1a237e;" vertex="1" parent="1">
+          <mxGeometry x="200" y="20" width="1200" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  SWIM-LANE BACKGROUNDS                                   -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="lane_ui" value="User Interface Layer" style="swimlane;startSize=30;fillColor=#e8eaf6;strokeColor=#3949ab;fontStyle=1;fontSize=13;fontColor=#1a237e;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1560" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_core" value="Core Processing Layer" style="swimlane;startSize=30;fillColor=#e8f5e9;strokeColor=#2e7d32;fontStyle=1;fontSize=13;fontColor=#1b5e20;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="1560" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_ai" value="AI / LLM Layer" style="swimlane;startSize=30;fillColor=#fff8e1;strokeColor=#f57f17;fontStyle=1;fontSize=13;fontColor=#e65100;" vertex="1" parent="1">
+          <mxGeometry x="40" y="530" width="1560" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_git" value="Git &amp; CI/CD Layer" style="swimlane;startSize=30;fillColor=#fce4ec;strokeColor=#c62828;fontStyle=1;fontSize=13;fontColor=#b71c1c;" vertex="1" parent="1">
+          <mxGeometry x="40" y="710" width="1560" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_watch" value="Self-Healing Watch Layer (Background Thread)" style="swimlane;startSize=30;fillColor=#f3e5f5;strokeColor=#6a1b9a;fontStyle=1;fontSize=13;fontColor=#4a148c;" vertex="1" parent="1">
+          <mxGeometry x="40" y="890" width="1560" height="220" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  UI LAYER                                                -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="browser" value="&lt;b&gt;Browser&lt;/b&gt;&lt;br&gt;http://localhost:8050" style="shape=mxgraph.mockup.containers.browser;strokeColor=#23445d;fillColor=#ddeeff;fontColor=#333366;shadow=1;fontSize=12;" vertex="1" parent="lane_ui">
+          <mxGeometry x="60" y="50" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="dashboard" value="&lt;b&gt;dashboard.py&lt;/b&gt;&lt;br&gt;Dash 4.1 + Bootstrap&lt;br&gt;8 Callbacks registered" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#3949ab;fontColor=#ffffff;strokeColor=#1a237e;fontSize=12;shadow=1;" vertex="1" parent="lane_ui">
+          <mxGeometry x="360" y="45" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ui_scan_btn" value="Scan Repo&lt;br&gt;Button" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7986cb;fontColor=#ffffff;strokeColor=#3949ab;fontSize=11;" vertex="1" parent="lane_ui">
+          <mxGeometry x="640" y="45" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ui_gen_btn" value="Generate&lt;br&gt;Button" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7986cb;fontColor=#ffffff;strokeColor=#3949ab;fontSize=11;" vertex="1" parent="lane_ui">
+          <mxGeometry x="800" y="45" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ui_preview" value="YAML Preview&lt;br&gt;+ Download" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7986cb;fontColor=#ffffff;strokeColor=#3949ab;fontSize=11;" vertex="1" parent="lane_ui">
+          <mxGeometry x="960" y="45" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ui_watch" value="CI Watch&lt;br&gt;Progress Card" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#7986cb;fontColor=#ffffff;strokeColor=#3949ab;fontSize=11;" vertex="1" parent="lane_ui">
+          <mxGeometry x="1120" y="45" width="120" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="ui_cancel" value="Cancel&lt;br&gt;Button" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ef5350;fontColor=#ffffff;strokeColor=#b71c1c;fontSize=11;" vertex="1" parent="lane_ui">
+          <mxGeometry x="1280" y="45" width="100" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  CORE LAYER                                              -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- scanner -->
+        <mxCell id="scanner" value="&lt;b&gt;scanner.py&lt;/b&gt;&lt;br&gt;Detect: language, framework,&lt;br&gt;tests, deploy targets,&lt;br&gt;package managers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#388e3c;fontColor=#ffffff;strokeColor=#1b5e20;fontSize=12;shadow=1;" vertex="1" parent="lane_core">
+          <mxGeometry x="60" y="50" width="200" height="100" as="geometry" />
+        </mxCell>
+        <!-- temp dir -->
+        <mxCell id="tmpdir" value="&lt;b&gt;Temp Clone Dir&lt;/b&gt;&lt;br&gt;tempfile.mkdtemp()&lt;br&gt;auto-cleaned after push" style="shape=mxgraph.cisco.servers.file_server;strokeColor=#1b5e20;fillColor=#c8e6c9;fontSize=11;" vertex="1" parent="lane_core">
+          <mxGeometry x="320" y="70" width="80" height="80" as="geometry" />
+        </mxCell>
+        <!-- generator -->
+        <mxCell id="generator" value="&lt;b&gt;generator.py&lt;/b&gt;&lt;br&gt;Build structured prompt&lt;br&gt;+ Rules 1-14&lt;br&gt;call LLM (Gemini/Groq/Anthropic)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#388e3c;fontColor=#ffffff;strokeColor=#1b5e20;fontSize=12;shadow=1;" vertex="1" parent="lane_core">
+          <mxGeometry x="480" y="50" width="200" height="100" as="geometry" />
+        </mxCell>
+        <!-- sanitizers -->
+        <mxCell id="sanitizers" value="&lt;b&gt;Output Sanitizers&lt;/b&gt;&lt;br&gt;_sanitize_expressions()&lt;br&gt;_sanitize_runner()&lt;br&gt;_strip_markdown_fences()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#66bb6a;fontColor=#1b5e20;strokeColor=#388e3c;fontSize=12;shadow=1;" vertex="1" parent="lane_core">
+          <mxGeometry x="750" y="50" width="200" height="100" as="geometry" />
+        </mxCell>
+        <!-- docker handler -->
+        <mxCell id="dockerhandler" value="&lt;b&gt;docker_handler.py&lt;/b&gt;&lt;br&gt;Generate multi-language&lt;br&gt;Dockerfile (4-phase)&lt;br&gt;+ docker-compose.yml" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#388e3c;fontColor=#ffffff;strokeColor=#1b5e20;fontSize=12;shadow=1;" vertex="1" parent="lane_core">
+          <mxGeometry x="1020" y="50" width="200" height="100" as="geometry" />
+        </mxCell>
+        <!-- writer -->
+        <mxCell id="writer" value="&lt;b&gt;writer.py&lt;/b&gt;&lt;br&gt;Write ci.yml / .gitlab-ci.yml&lt;br&gt;/ Jenkinsfile to repo&lt;br&gt;+ trailing newline guarantee" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#388e3c;fontColor=#ffffff;strokeColor=#1b5e20;fontSize=12;shadow=1;" vertex="1" parent="lane_core">
+          <mxGeometry x="1290" y="50" width="200" height="100" as="geometry" />
+        </mxCell>
+        <!-- scan result -->
+        <mxCell id="scan_result" value="scan dict&lt;br&gt;{language, frameworks,&lt;br&gt;tests, deploy_targets,&lt;br&gt;package_manager}" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;" vertex="1" parent="lane_core">
+          <mxGeometry x="60" y="180" width="200" height="60" as="geometry" />
+        </mxCell>
+        <!-- yaml string -->
+        <mxCell id="yaml_str" value="raw YAML string" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;" vertex="1" parent="lane_core">
+          <mxGeometry x="480" y="180" width="200" height="60" as="geometry" />
+        </mxCell>
+        <!-- clean yaml -->
+        <mxCell id="clean_yaml" value="sanitised YAML string" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;" vertex="1" parent="lane_core">
+          <mxGeometry x="750" y="180" width="200" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  AI LAYER                                                -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="gemini" value="&lt;b&gt;Gemini Flash&lt;/b&gt;&lt;br&gt;gemini-2.0-flash&lt;br&gt;Free: 1500 req/day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9a825;fontColor=#212121;strokeColor=#f57f17;fontSize=12;shadow=1;" vertex="1" parent="lane_ai">
+          <mxGeometry x="160" y="55" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="groq" value="&lt;b&gt;Groq — Llama 3.3&lt;/b&gt;&lt;br&gt;llama-3.3-70b-versatile&lt;br&gt;Free: 14400 req/day" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9a825;fontColor=#212121;strokeColor=#f57f17;fontSize=12;shadow=1;" vertex="1" parent="lane_ai">
+          <mxGeometry x="420" y="55" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="anthropic" value="&lt;b&gt;Anthropic Claude&lt;/b&gt;&lt;br&gt;claude-opus-4-6&lt;br&gt;Paid plan required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9a825;fontColor=#212121;strokeColor=#f57f17;fontSize=12;shadow=1;" vertex="1" parent="lane_ai">
+          <mxGeometry x="680" y="55" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="llm_note" value="Selected at runtime via Provider dropdown.&lt;br&gt;API key passed as callback State (never stored on disk)." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontStyle=2;" vertex="1" parent="lane_ai">
+          <mxGeometry x="920" y="55" width="560" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  GIT LAYER                                               -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="githandler" value="&lt;b&gt;git_handler.py&lt;/b&gt;&lt;br&gt;Clone → stub dep files → pre-commit (2-pass)&lt;br&gt;→ commit on feature branch → push" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c62828;fontColor=#ffffff;strokeColor=#7f0000;fontSize=12;shadow=1;" vertex="1" parent="lane_git">
+          <mxGeometry x="60" y="50" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="precommit" value="&lt;b&gt;pre-commit&lt;/b&gt;&lt;br&gt;trailing-whitespace, end-of-file-fixer&lt;br&gt;check-yaml, language linters&lt;br&gt;2-pass: auto-fix then verify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ef9a9a;fontColor=#212121;strokeColor=#c62828;fontSize=11;shadow=1;" vertex="1" parent="lane_git">
+          <mxGeometry x="480" y="50" width="240" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="remoterepo" value="&lt;b&gt;Remote GitHub Repo&lt;/b&gt;&lt;br&gt;feature branch: cicd-gen-*&lt;br&gt;(default branch untouched)" style="shape=mxgraph.cisco.servers.server;strokeColor=#7f0000;fillColor=#ffcdd2;fontSize=12;shadow=1;" vertex="1" parent="lane_git">
+          <mxGeometry x="800" y="40" width="120" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="ghactions" value="&lt;b&gt;GitHub Actions&lt;/b&gt;&lt;br&gt;Triggered by push&lt;br&gt;to feature branch" style="shape=mxgraph.cisco.servers.application_server;strokeColor=#7f0000;fillColor=#ffcdd2;fontSize=12;shadow=1;" vertex="1" parent="lane_git">
+          <mxGeometry x="1020" y="40" width="120" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="git_note" value="Auth: SSH keys (git@) or token-injected HTTPS.&lt;br&gt;Token embedded only in URL for duration of push, never persisted." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontStyle=2;" vertex="1" parent="lane_git">
+          <mxGeometry x="1200" y="55" width="340" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  SELF-HEALING LAYER                                      -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="aihandler" value="&lt;b&gt;ai_handler.py — _watch_ci_and_heal()&lt;/b&gt;&lt;br&gt;Background daemon thread • threading.Event cancel&lt;br&gt;threading.Lock on shared state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#6a1b9a;fontColor=#ffffff;strokeColor=#4a148c;fontSize=12;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="60" y="45" width="340" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="snapshot" value="&lt;b&gt;1. Snapshot&lt;/b&gt;&lt;br&gt;Pre-populate seen_run_ids&lt;br&gt;with all pre-existing runs&lt;br&gt;(prevents picking stale runs)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="60" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="pollruns" value="&lt;b&gt;2. Poll Runs&lt;/b&gt;&lt;br&gt;GET /actions/runs?branch=...&lt;br&gt;require id &gt; max(seen_ids)&lt;br&gt;wait up to 25×12s = 5 min" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="270" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="pollstatus" value="&lt;b&gt;3. Poll Status&lt;/b&gt;&lt;br&gt;GET /actions/runs/{id}&lt;br&gt;every 12s up to 90 ticks&lt;br&gt;wait for &#39;completed&#39;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="480" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="fetchlogs" value="&lt;b&gt;4. Fetch Logs&lt;/b&gt;&lt;br&gt;GET /runs/{id}/logs&lt;br&gt;302 → S3 presigned URL&lt;br&gt;extract error lines (8000 chars)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="690" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="fixprompt" value="&lt;b&gt;5. Fix Prompt&lt;/b&gt;&lt;br&gt;_build_ci_fix_prompt()&lt;br&gt;current YAML + Dockerfile&lt;br&gt;+ error log + rules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="900" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="fixsanitize" value="&lt;b&gt;6. Sanitize Fix&lt;/b&gt;&lt;br&gt;_sanitize_expressions()&lt;br&gt;_sanitize_runner()&lt;br&gt;_ensure_trailing_newline()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="1110" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="fixpush" value="&lt;b&gt;7. Commit &amp; Push Fix&lt;/b&gt;&lt;br&gt;fetch+rebase → commit&lt;br&gt;push → wait 15s&lt;br&gt;Retry up to 2 times" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ab47bc;fontColor=#ffffff;strokeColor=#6a1b9a;fontSize=11;shadow=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="1320" y="145" width="180" height="55" as="geometry" />
+        </mxCell>
+        <!-- success/fail terminals -->
+        <mxCell id="pass_end" value="✅ CI Passed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00c853;fontColor=#ffffff;strokeColor=#007d32;fontSize=12;fontStyle=1;" vertex="1" parent="lane_watch">
+          <mxGeometry x="480" y="50" width="120" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="fail_end" value="❌ Gave Up&lt;br&gt;(max retries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d50000;fontColor=#ffffff;strokeColor=#7f0000;fontSize=12;" vertex="1" parent="lane_watch">
+          <mxGeometry x="650" y="50" width="120" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="cancelled" value="🛑 Cancelled&lt;br&gt;(user)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ff6d00;fontColor=#ffffff;strokeColor=#e65100;fontSize=12;" vertex="1" parent="lane_watch">
+          <mxGeometry x="820" y="50" width="120" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — UI LAYER                                        -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="browser" target="dashboard" parent="lane_ui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="dashboard" target="ui_scan_btn" parent="lane_ui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="dashboard" target="ui_gen_btn" parent="lane_ui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="dashboard" target="ui_preview" parent="lane_ui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="dashboard" target="ui_watch" parent="lane_ui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="dashboard" target="ui_cancel" parent="lane_ui">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — CROSS-LANE (UI → core)                          -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_scan" value="clone + scan" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontStyle=1;fontSize=11;strokeColor=#2e7d32;" edge="1" parent="1" source="ui_scan_btn" target="scanner">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_gen" value="generate" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;fontStyle=1;fontSize=11;strokeColor=#2e7d32;" edge="1" parent="1" source="ui_gen_btn" target="generator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — CORE LAYER                                      -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_core1" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="scanner" target="scan_result" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_core2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="scan_result" target="generator" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_core3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="generator" target="yaml_str" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_core4" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="yaml_str" target="sanitizers" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_core5" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="sanitizers" target="clean_yaml" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_core6" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="clean_yaml" target="writer" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_core7" value="if docker requested" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#388e3c;" edge="1" source="sanitizers" target="dockerhandler" parent="lane_core">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — CORE → AI                                       -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_llm1" value="prompt + API key" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#f57f17;fontStyle=1;fontSize=11;" edge="1" parent="1" source="generator" target="groq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_llm2" value="raw YAML response" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=0;entryX=0.5;entryY=1;strokeColor=#f57f17;dashed=1;fontStyle=1;fontSize=11;" edge="1" parent="1" source="groq" target="generator">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — CORE → GIT                                      -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_git1" value="ci.yml + Dockerfile" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#c62828;fontStyle=1;fontSize=11;" edge="1" parent="1" source="writer" target="githandler">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_git2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="githandler" target="precommit" parent="lane_git">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_git3" value="push feature branch" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;fontStyle=1;fontSize=11;" edge="1" source="precommit" target="remoterepo" parent="lane_git">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_git4" value="triggers" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;fontStyle=1;fontSize=11;dashed=1;" edge="1" source="remoterepo" target="ghactions" parent="lane_git">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — GIT → WATCH                                     -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_watch_start" value="thread start&lt;br&gt;(after push)" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.25;entryY=0;strokeColor=#6a1b9a;fontStyle=1;fontSize=11;" edge="1" parent="1" source="ghactions" target="aihandler">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — WATCH STEPS                                     -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_w1" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="aihandler" target="snapshot" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="snapshot" target="pollruns" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="pollruns" target="pollstatus" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w4" value="success" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#00c853;fontStyle=1;fontSize=11;" edge="1" source="pollstatus" target="pass_end" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w5" value="failure" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d50000;fontStyle=1;fontSize=11;" edge="1" source="pollstatus" target="fetchlogs" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w6" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="fetchlogs" target="fixprompt" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w7" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="fixprompt" target="fixsanitize" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w8" style="edgeStyle=orthogonalEdgeStyle;" edge="1" source="fixsanitize" target="fixpush" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w9" value="max retries exceeded" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#d50000;dashed=1;fontStyle=2;fontSize=10;" edge="1" source="fixpush" target="fail_end" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_w10" value="retry (poll new run)" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=1;entryY=0.5;strokeColor=#6a1b9a;dashed=1;fontStyle=2;fontSize=10;" edge="1" source="fixpush" target="pollruns" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1410" y="215" />
+              <mxPoint x="1410" y="240" />
+              <mxPoint x="360" y="240" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_w11" value="cancel event set" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#ff6d00;dashed=1;fontStyle=2;fontSize=10;" edge="1" source="pollstatus" target="cancelled" parent="lane_watch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!--  EDGES — WATCH → AI (fix prompt calls LLM)               -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="e_fix_llm" value="fix prompt" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#f57f17;fontStyle=1;fontSize=11;" edge="1" parent="1" source="fixprompt" target="groq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- LEGEND                                                   -->
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1130" width="600" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1" value="Core module (Python file)" style="rounded=1;fillColor=#388e3c;fontColor=#ffffff;strokeColor=#1b5e20;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="20" y="40" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2" value="AI / LLM provider" style="rounded=1;fillColor=#f9a825;fontColor=#212121;strokeColor=#f57f17;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="220" y="40" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3" value="Git / remote resource" style="rounded=1;fillColor=#c62828;fontColor=#ffffff;strokeColor=#7f0000;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="420" y="40" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4" value="Background CI heal thread" style="rounded=1;fillColor=#6a1b9a;fontColor=#ffffff;strokeColor=#4a148c;fontSize=11;" vertex="1" parent="legend">
+          <mxGeometry x="20" y="90" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="leg5" value="Data artefact (YAML/dict)" style="shape=parallelogram;perimeter=parallelogramPerimeter;fillColor=#a5d6a7;strokeColor=#2e7d32;fontSize=11;whiteSpace=wrap;html=1;" vertex="1" parent="legend">
+          <mxGeometry x="220" y="90" width="180" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="leg6" value="Optional / conditional flow" style="edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#666666;fontSize=11;" edge="1" parent="legend">
+          <mxGeometry x="420" y="105" width="160" height="10" as="geometry">
+            <mxPoint as="sourcePoint" x="420" y="105" />
+            <mxPoint as="targetPoint" x="580" y="105" />
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
