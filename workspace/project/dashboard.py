@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:48:37 am                             #
+#  Last Modified: Sunday April 5th 2026 10:26:40 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -42,7 +42,7 @@ import sys
 import tempfile
 import threading
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # ── Make sure sibling modules are importable when run directly ────────────────
 sys.path.insert(0, str(Path(__file__).parent))
@@ -73,7 +73,7 @@ from git_handler import (
     _safe_url,
 )
 from scanner import scan_repo
-from writer import write_config
+from writer import PLATFORM_OUTPUT_PATHS, write_config
 
 # ── Handler imports ────────────────────────────────────────────────────────────────
 
@@ -180,6 +180,88 @@ def _section(title: str, children, **kwargs) -> dbc.Card:
 
 def _alert(message: str, color: str = "info") -> dbc.Alert:
     return dbc.Alert(message, color=color, dismissable=True, className="mb-0")
+
+
+# ── File-browser helpers ─────────────────────────────────────────────────────────
+
+_EXT_LANG: dict[str, str] = {
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".md": "markdown",
+    ".txt": "text",
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".json": "json",
+    ".sh": "bash",
+    ".toml": "toml",
+    ".xml": "xml",
+}
+_NAME_LANG: dict[str, str] = {
+    "Dockerfile": "dockerfile",
+    "Jenkinsfile": "groovy",
+    ".env": "bash",
+}
+
+
+def _render_file_content(rel_path: str, content: str):
+    """Return a Markdown code block with appropriate syntax highlighting."""
+    name = PurePosixPath(rel_path).name
+    ext = PurePosixPath(rel_path).suffix.lower()
+    lang = _NAME_LANG.get(name) or _EXT_LANG.get(ext, "text")
+    return dcc.Markdown(
+        f"```{lang}\n{content}\n```",
+        style={"margin": 0, "fontSize": "0.82rem"},
+    )
+
+
+def _files_to_tree_options(files: dict) -> list[dict]:
+    """Convert a {rel_path: content} mapping to dcc.RadioItems options styled as a file tree."""
+    paths = sorted(files.keys())
+    options: list[dict] = []
+    seen_dirs: set[str] = set()
+    for path_str in paths:
+        parts = path_str.replace("\\", "/").split("/")
+        for depth in range(len(parts) - 1):
+            dir_key = "/".join(parts[: depth + 1]) + "/"
+            if dir_key not in seen_dirs:
+                seen_dirs.add(dir_key)
+                prefix = "\u00a0" * (depth * 4)
+                options.append(
+                    {
+                        "label": f"{prefix}\U0001f4c2 {parts[depth]}/",
+                        "value": f"__dir__{dir_key}",
+                        "disabled": True,
+                    }
+                )
+        depth = len(parts) - 1
+        prefix = "\u00a0" * (depth * 4)
+        options.append({"label": f"{prefix}\U0001f4c4 {parts[-1]}", "value": path_str})
+    return options
+
+
+def _build_files_state(
+    clone_path: str,
+    platform: str,
+    yaml_content: str,
+    dockerfile_content: str | None,
+    compose_content: str | None,
+) -> dict:
+    """Collect all generated file paths + contents into a single dict for the file browser."""
+    files: dict[str, str] = {}
+    ci_rel = PLATFORM_OUTPUT_PATHS.get(platform, ".github/workflows/ci.yml")
+    files[ci_rel] = yaml_content
+    readme_path = Path(clone_path) / ".github" / "README.md"
+    if readme_path.exists():
+        try:
+            files[".github/README.md"] = readme_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    if dockerfile_content:
+        files["Dockerfile"] = dockerfile_content
+    if compose_content:
+        files["docker-compose.yml"] = compose_content
+    return {"files": files, "clone_path": clone_path, "default_file": ci_rel}
 
 
 # ── Layout ────────────────────────────────────────────────────────────────────
@@ -776,8 +858,51 @@ app.layout = dbc.Container(
             id="cancel-btn-row",
             style={"display": "none"},
         ),
-        dcc.Download(id="yaml-download"),
+        # ── File browser (shown after generation) ─────────────────────────────
+        html.Div(
+            id="file-browser",
+            style={"display": "none"},
+            children=[
+                html.Hr(className="my-3"),
+                html.H6("📂 Generated Files", className="fw-semibold mb-2"),
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            html.Div(
+                                dcc.RadioItems(
+                                    id="file-tree-radio",
+                                    options=[],
+                                    value=None,
+                                    inputStyle={"display": "none"},
+                                    labelStyle={
+                                        "display": "block",
+                                        "padding": "3px 8px",
+                                        "cursor": "pointer",
+                                        "fontSize": "0.84rem",
+                                        "fontFamily": "monospace",
+                                        "borderRadius": "4px",
+                                    },
+                                ),
+                                className="border rounded p-2 bg-light",
+                                style={"minHeight": "200px"},
+                            ),
+                            md=4,
+                        ),
+                        dbc.Col(
+                            html.Div(
+                                id="file-viewer-content",
+                                style={"maxHeight": "520px", "overflowY": "auto"},
+                            ),
+                            md=8,
+                        ),
+                    ],
+                    className="g-2",
+                ),
+            ],
+        ),
         # ── Hidden stores (memory-only — cleared on page refresh) ──────────────
+        # Holds: generated files {files: {rel_path: content}, clone_path, default_file}
+        dcc.Store(id="generated-files-state", storage_type="memory"),
         # Holds: {scan, clone_path, url, is_empty, auth_type}
         dcc.Store(id="scan-state", storage_type="memory"),
         # Holds: {watch_id} for CI polling
@@ -1109,7 +1234,10 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
 @app.callback(
     Output("generate-status", "children"),
     Output("yaml-preview", "children"),
-    Output("yaml-download", "data"),
+    Output("generated-files-state", "data"),
+    Output("file-browser", "style"),
+    Output("file-tree-radio", "options"),
+    Output("file-tree-radio", "value"),
     Output("ci-watch-state", "data", allow_duplicate=True),
     Output("ci-watch-interval", "disabled", allow_duplicate=True),
     Input("generate-btn", "n_clicks"),
@@ -1152,8 +1280,9 @@ def generate_pipeline_cb(
 ):
     """Generate CI/CD YAML, commit on feature branch, optionally push."""
     _no_watch = (None, True)  # (ci-watch-state data, interval disabled)
+    _no_files = (no_update, {"display": "none"}, no_update, no_update)  # new 4 outputs on error
     if not scan_state:
-        return _alert("Please scan a repository first.", "warning"), None, None, *_no_watch
+        return _alert("Please scan a repository first.", "warning"), None, *_no_files, *_no_watch
 
     clone_path = scan_state.get("clone_path")
     scan = scan_state.get("scan", {})
@@ -1164,7 +1293,7 @@ def generate_pipeline_cb(
         return (
             _alert("Clone directory not found. Please scan the repository again.", "warning"),
             None,
-            None,
+            *_no_files,
             *_no_watch,
         )
 
@@ -1255,7 +1384,7 @@ def generate_pipeline_cb(
                 color="danger",
             ),
             None,
-            None,
+            *_no_files,
             *_no_watch,
         )
 
@@ -1295,12 +1424,12 @@ def generate_pipeline_cb(
                     color="warning",
                 ),
                 None,
-                None,
+                *_no_files,
                 *_no_watch,
             )
-        return _alert(msg, "danger"), None, None, *_no_watch
+        return _alert(msg, "danger"), None, *_no_files, *_no_watch
     except Exception as exc:
-        return _alert(f"Generation error: {exc}", "danger"), None, None, *_no_watch
+        return _alert(f"Generation error: {exc}", "danger"), None, *_no_files, *_no_watch
 
     # ── Commit on feature branch ──────────────────────────────────────────────
     try:
@@ -1309,7 +1438,7 @@ def generate_pipeline_cb(
             repo, clone_path, branch_name, platform, yaml_content, scan, extra_files=extra_files
         )
     except Exception as exc:
-        return _alert(f"Git commit error: {exc}", "danger"), None, None, *_no_watch
+        return _alert(f"Git commit error: {exc}", "danger"), None, *_no_files, *_no_watch
 
     # ── Push ──────────────────────────────────────────────────────────────────
     push_msg = ""
@@ -1393,36 +1522,11 @@ def generate_pipeline_cb(
         dismissable=True,
     )
 
-    filename = Path(clone_path).name + "_pipeline.yml"
-    preview_tabs = [
-        dbc.Tab(
-            dcc.Markdown(
-                f"```yaml\n{yaml_content}\n```",
-                style={"maxHeight": "500px", "overflowY": "auto"},
-            ),
-            label=f"CI/CD Pipeline  ·  {PLATFORM_LABELS.get(platform, platform)}",
-        ),
-    ]
-    if dockerfile_content:
-        preview_tabs.append(
-            dbc.Tab(
-                dcc.Markdown(
-                    f"```dockerfile\n{dockerfile_content}\n```",
-                    style={"maxHeight": "500px", "overflowY": "auto"},
-                ),
-                label="Dockerfile",
-            )
-        )
-    if compose_content:
-        preview_tabs.append(
-            dbc.Tab(
-                dcc.Markdown(
-                    f"```yaml\n{compose_content}\n```",
-                    style={"maxHeight": "500px", "overflowY": "auto"},
-                ),
-                label="docker-compose.yml",
-            )
-        )
+    # ── Build generated-files state and file-browser tree ────────────────────
+    files_state = _build_files_state(clone_path, platform, yaml_content, dockerfile_content, compose_content)
+    tree_options = _files_to_tree_options(files_state["files"])
+    default_file = files_state.get("default_file") or (tree_options[0]["value"] if tree_options else None)
+
     # Docker push notice — shown only when the user enabled Docker push
     docker_push_notice = (
         dbc.Alert(
@@ -1483,20 +1587,18 @@ def generate_pipeline_cb(
         else None
     )
 
-    preview = _section(
-        "Generated Files",
-        [
-            html.A(
-                dbc.Button("⬇ Download CI/CD YAML", color="outline-secondary", size="sm", className="mb-2"),
-                id="download-btn",
-                href="#",
-            ),
-            docker_push_notice,
-            dbc.Tabs(preview_tabs),
-        ],
-    )
+    preview = docker_push_notice  # file browser is in its own #file-browser div
 
-    return status, preview, dcc.send_string(yaml_content, filename=filename), watch_state, interval_disabled
+    return (
+        status,
+        preview,
+        files_state,
+        {"display": "block"},
+        tree_options,
+        default_file,
+        watch_state,
+        interval_disabled,
+    )
 
 
 @app.callback(
@@ -1504,21 +1606,24 @@ def generate_pipeline_cb(
     Output("ci-watch-interval", "disabled"),
     Output("ci-watch-state", "data"),
     Output("cancel-btn-row", "style"),
+    Output("generated-files-state", "data", allow_duplicate=True),
     Input("ci-watch-interval", "n_intervals"),
     State("ci-watch-state", "data"),
+    State("generated-files-state", "data"),
+    prevent_initial_call=True,
 )
-def poll_ci_watch_status(n_intervals, watch_state):
+def poll_ci_watch_status(n_intervals, watch_state, files_state):
     """Read background CI-watch progress and update the status card."""
     _hidden = {"display": "none"}
     _visible = {"display": "inline-block", "marginTop": "8px"}
     if not watch_state or not watch_state.get("watch_id"):
-        return None, True, watch_state, _hidden
+        return None, True, watch_state, _hidden, no_update
 
     watch_id = watch_state["watch_id"]
     with _ci_watch_lock:
         entry = dict(_ci_watch_results.get(watch_id, {}))
     if not entry:
-        return None, True, watch_state, _hidden
+        return None, True, watch_state, _hidden, no_update
 
     messages = entry.get("messages", [])
     steps = entry.get("steps", [])
@@ -1606,7 +1711,53 @@ def poll_ci_watch_status(n_intervals, watch_state):
     )
 
     cancel_style = _hidden if done else _visible
-    return card, done, (None if done else watch_state), cancel_style
+
+    # When CI passes, refresh the CI YAML in the file-browser store
+    updated_files_state = no_update
+    if done and status == "passed" and files_state and watch_state:
+        try:
+            clone_path = watch_state.get("clone_path") or (files_state or {}).get("clone_path", "")
+            platform = (files_state or {}).get("platform", "")
+            if clone_path and platform:
+                from writer import PLATFORM_OUTPUT_PATHS
+
+                ci_rel = PLATFORM_OUTPUT_PATHS.get(platform, PLATFORM_OUTPUT_PATHS["github"])
+                ci_path = Path(clone_path) / ci_rel
+                if ci_path.exists():
+                    new_yaml = ci_path.read_text(encoding="utf-8")
+                    updated_files_state = dict(files_state)
+                    updated_files_state["files"] = dict(files_state.get("files", {}))
+                    updated_files_state["files"][str(PurePosixPath(ci_rel))] = new_yaml
+        except Exception:
+            pass
+
+    return card, done, (None if done else watch_state), cancel_style, updated_files_state
+
+
+@app.callback(
+    Output("file-viewer-content", "children"),
+    Input("file-tree-radio", "value"),
+    State("generated-files-state", "data"),
+    prevent_initial_call=True,
+)
+def view_generated_file(selected, files_state):
+    """Render a selected file from the generated-files tree."""
+    if not selected or not files_state or selected.startswith("__dir__"):
+        raise PreventUpdate
+    files = (files_state or {}).get("files", {})
+    content = files.get(selected)
+    if content is None:
+        clone_path = (files_state or {}).get("clone_path", "")
+        if clone_path:
+            disk_path = Path(clone_path) / selected
+            if disk_path.exists():
+                try:
+                    content = disk_path.read_text(encoding="utf-8")
+                except Exception:
+                    pass
+    if content is None:
+        return dbc.Alert(f"Content not available: {selected}", color="warning", className="mt-2")
+    return _render_file_content(selected, content)
 
 
 @app.callback(
