@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:58:08 am                             #
+#  Last Modified: Sunday April 5th 2026 2:41:37 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -545,29 +545,82 @@ def _call_gemini(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
         raise EnvironmentError(f"Gemini API error: {exc}") from exc
 
 
+def _parse_groq_retry_delay(exc: Exception) -> int:
+    """
+    Extract the suggested retry delay (seconds) from a Groq RateLimitError.
+    Checks the response headers first, then falls back to parsing the message.
+    Returns 0 if not found.
+    """
+    # Groq SDK attaches the raw httpx response on the exception
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        headers = getattr(resp, "headers", {})
+        # retry-after is in seconds
+        ra = headers.get("retry-after") or headers.get("Retry-After")
+        if ra:
+            try:
+                return int(float(ra))
+            except (ValueError, TypeError):
+                pass
+        # x-ratelimit-reset-requests  e.g. "1m30s" or "45s"
+        reset = headers.get("x-ratelimit-reset-requests") or headers.get("x-ratelimit-reset-tokens")
+        if reset:
+            m = re.fullmatch(r"(?:(\d+)m)?(\d+)s", reset.strip())
+            if m:
+                return int(m.group(1) or 0) * 60 + int(m.group(2))
+    # Fallback: scan the exception message
+    m2 = re.search(r"retry[- ]after[:\s]+(\d+)", str(exc), re.IGNORECASE)
+    return int(m2.group(1)) if m2 else 0
+
+
 def _call_groq(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
     """Call Groq (free tier, Llama 3.3)."""
     try:
         from groq import AuthenticationError as GroqAuthError  # type: ignore
         from groq import Groq  # type: ignore
+        from groq import RateLimitError as GroqRateLimitError  # type: ignore
     except ImportError:
         raise ImportError("groq is not installed. Run: pip install groq")
     client = Groq(api_key=api_key)
-    try:
+
+    def _attempt():
         completion = client.chat.completions.create(
             model=PROVIDER_DEFAULTS["groq"]["model"],
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
         )
+        return completion.choices[0].message.content.strip()
+
+    try:
+        return _attempt()
     except GroqAuthError as exc:
         raise EnvironmentError(
             "Groq API key is invalid or has been revoked. "
             'Please check the key you entered (it should start with "gsk_") and try again. '
             "Get a valid key at https://console.groq.com"
         ) from exc
+    except GroqRateLimitError as exc:
+        delay = _parse_groq_retry_delay(exc)
+        wait = min(delay if delay > 0 else 60, 120)
+        import datetime
+
+        retry_at = (datetime.datetime.now() + datetime.timedelta(seconds=wait)).strftime("%H:%M:%S")
+        time.sleep(wait)
+        try:
+            return _attempt()
+        except GroqRateLimitError as exc2:
+            delay2 = _parse_groq_retry_delay(exc2)
+            wait2 = delay2 or 60
+            retry_at2 = (datetime.datetime.now() + datetime.timedelta(seconds=wait2)).strftime("%H:%M:%S")
+            raise EnvironmentError(
+                f"Groq rate limit hit twice (429). "
+                f"Retried automatically at {retry_at} — still rate-limited.\n"
+                f"  • Wait until {retry_at2} and try again.\n"
+                f"  • Switch to the Gemini provider if Groq stays busy.\n"
+                f"  • Check your Groq usage at https://console.groq.com/usage"
+            ) from exc2
     except Exception as exc:
         raise EnvironmentError(f"Groq API error: {exc}") from exc
-    return completion.choices[0].message.content.strip()
 
 
 def _call_anthropic(prompt: str, api_key: str, max_tokens: int = 2048) -> str:

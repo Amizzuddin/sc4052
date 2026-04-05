@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:27:13 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:41:40 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1407,6 +1407,13 @@ def generate_pipeline_cb(
             lines = [s.strip() for s in msg.splitlines() if s.strip()]
             bullets = [html.Li(l.lstrip("•").strip()) for l in lines if l.startswith("•")]
             summary = next((l for l in lines if not l.startswith("•")), msg)
+            # Suggest the *other* provider
+            alt_provider = "Gemini" if provider == "groq" else "Groq (Llama 3.3)"
+            alt_note = (
+                "free tier, 14 400 req/day — get a key at https://console.groq.com"
+                if provider != "groq"
+                else "free tier — get a key at https://aistudio.google.com/app/apikey"
+            )
             return (
                 dbc.Alert(
                     [
@@ -1415,11 +1422,8 @@ def generate_pipeline_cb(
                         html.Ul(bullets, className="mt-2 mb-1") if bullets else None,
                         html.Hr(className="my-2"),
                         html.Span("Tip: switch to "),
-                        html.Strong("Groq (Llama 3.3)"),
-                        html.Span(
-                            " — free tier, 14 400 req/day, no daily cap issues. "
-                            "Select it in the AI Provider section above."
-                        ),
+                        html.Strong(alt_provider),
+                        html.Span(f" — {alt_note}. Select it in the AI Provider section above."),
                     ],
                     color="warning",
                 ),
