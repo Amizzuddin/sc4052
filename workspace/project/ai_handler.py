@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 8:34:03 am                             #
+#  Last Modified: Sunday April 5th 2026 9:10:53 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -141,6 +141,59 @@ def _github_api_raw(path: str, token: str) -> bytes | None:
     except Exception as e:
         print(f"[cicd-gen] GitHub raw fetch error: {e}", file=sys.stderr)
         return None
+
+
+def check_repo_secrets(
+    owner: str,
+    repo: str,
+    token: str,
+    names: list[str],
+) -> dict:
+    """Check which of *names* exist as Actions secrets in the repository.
+
+    Uses ``GET /repos/{owner}/{repo}/actions/secrets`` which returns secret
+    names only — values are never exposed by the GitHub API.  Requires a
+    token with at least ``repo`` scope (or ``secrets:read`` fine-grained).
+
+    Returns a dict::
+
+        {
+            "found"    : list[str]   # secret names that exist
+            "missing"  : list[str]   # secret names that are absent
+            "error"    : str | None  # human-readable error, or None
+            "can_check": bool        # False when prerequisites are missing
+        }
+    """
+    if not token or not owner or not repo:
+        return {"found": [], "missing": list(names), "error": None, "can_check": False}
+
+    # Paginate through all secrets (GitHub returns up to 100 per page)
+    found_names: set[str] = set()
+    page = 1
+    while True:
+        data = _github_api(
+            f"/repos/{owner}/{repo}/actions/secrets?per_page=100&page={page}",
+            token,
+        )
+        if data is None:
+            return {
+                "found": [],
+                "missing": list(names),
+                "error": (
+                    "Could not read secrets — ensure your token has 'repo' scope " "and that the repository exists."
+                ),
+                "can_check": True,
+            }
+        secrets_page = data.get("secrets", []) if isinstance(data, dict) else []
+        for s in secrets_page:
+            found_names.add(s.get("name", ""))
+        if len(secrets_page) < 100:
+            break
+        page += 1
+
+    found = [n for n in names if n in found_names]
+    missing = [n for n in names if n not in found_names]
+    return {"found": found, "missing": missing, "error": None, "can_check": True}
 
 
 def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
