@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:48:38 am                             #
+#  Last Modified: Sunday April 5th 2026 1:21:23 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -382,7 +382,9 @@ def _watch_ci_and_heal(
     if seen_run_ids:
         _log(f"  Pre-existing run IDs skipped: {sorted(seen_run_ids)}")
 
-    for attempt in range(1, max_retries + 2):
+    attempt = 0
+    while True:
+        attempt += 1
         with _ci_watch_lock:
             _ci_watch_results[watch_id]["attempt"] = attempt
 
@@ -394,7 +396,7 @@ def _watch_ci_and_heal(
             wait_run_idx = _add_step(f"Attempt {attempt}: waiting for new Actions run", "running")
             run_progress_idx = _add_step(f"Attempt {attempt}: CI run in progress", "pending")
 
-        _set_progress(5 + (attempt - 1) * 30)
+        _set_progress(min(5 + (attempt - 1) * 10, 85))
 
         # Wait for an Actions run to appear on this branch
         run_id = None
@@ -430,7 +432,7 @@ def _watch_ci_and_heal(
 
         _set_step(wait_run_idx, "passed")
         _set_step(run_progress_idx, "running")
-        _set_progress(15 + (attempt - 1) * 30)
+        _set_progress(min(15 + (attempt - 1) * 10, 85))
 
         # Poll until the run completes
         timeout_ticks = 90
@@ -444,7 +446,7 @@ def _watch_ci_and_heal(
             conclusion = run_data.get("conclusion", "")
             elapsed = tick * 12
             _log(f"Run #{run_id}  status={run_status}  conclusion={conclusion}  elapsed={elapsed}s")
-            _set_progress(int(15 + (tick / timeout_ticks) * 40) + (attempt - 1) * 30)
+            _set_progress(min(int(15 + (tick / timeout_ticks) * 60), 90))
             if run_status == "completed":
                 break
             _cancel.wait(12)
@@ -462,12 +464,7 @@ def _watch_ci_and_heal(
 
         _set_step(run_progress_idx, "failed")
 
-        if attempt > max_retries:
-            _finish("gave_up")
-            _log(f"❌ CI still failing after {max_retries} fix attempt(s). Giving up.")
-            return
-
-        # Fetch logs & ask LLM
+        # Fetch logs & ask LLM (no limit — user cancels when done)
         _set_progress(60 + (attempt - 1) * 30)
         llm_idx = _add_step(f"Fix attempt {attempt}: fetching logs & asking LLM", "running")
         _log(f"❌ CI failed (attempt {attempt}). Fetching logs...")

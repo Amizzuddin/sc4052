@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 10:26:40 am                            #
+#  Last Modified: Sunday April 5th 2026 1:21:22 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1481,7 +1481,6 @@ def generate_pipeline_cb(
                     "status": "watching",
                     "done": False,
                     "attempt": 1,
-                    "max_retries": 10,
                     "progress": 5,
                 }
             _ci_cancel_flags[watch_id] = cancel_ev
@@ -1499,7 +1498,6 @@ def generate_pipeline_cb(
                     provider=provider,
                     api_key=resolved_api_key,
                     cancel_event=cancel_ev,
-                    max_retries=10,
                 ),
                 daemon=True,
             ).start()
@@ -1631,8 +1629,6 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
     status = entry.get("status", "watching")
     progress = entry.get("progress", 0)
     attempt = entry.get("attempt", 1)
-    max_retries = entry.get("max_retries", 10)
-
     color_map = {
         "passed": "success",
         "gave_up": "danger",
@@ -1646,7 +1642,7 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
         "passed": "✅ CI passed!",
         "gave_up": "❌ CI auto-fix gave up",
         "error": "⚠ CI watcher error",
-        "watching": f"⏳ Watching CI…  (attempt {attempt}/{max_retries + 1})",
+        "watching": f"⏳ Watching CI…  (attempt {attempt})",
         "cancelled": "🚫 Watch cancelled",
     }
     title = title_map.get(status, "CI watch")
