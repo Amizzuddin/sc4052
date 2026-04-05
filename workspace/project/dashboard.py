@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:41:40 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:49:54 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1402,6 +1402,30 @@ def generate_pipeline_cb(
         yaml_content = _sanitize_runner(yaml_content, platform)
     except (EnvironmentError, ImportError) as exc:
         msg = str(exc)
+        # Billing / credit errors (Anthropic insufficient credits, etc.)
+        if "credit" in msg.lower() or "billing" in msg.lower() or "insufficient" in msg.lower():
+            lines = [s.strip() for s in msg.splitlines() if s.strip()]
+            bullets = [html.Li(l.lstrip("\u2022").strip()) for l in lines if l.startswith("\u2022")]
+            summary = next((l for l in lines if not l.startswith("\u2022")), msg)
+            return (
+                dbc.Alert(
+                    [
+                        html.Strong(f"💳 {provider.capitalize()} billing error — insufficient credits. "),
+                        html.Span(summary),
+                        html.Ul(bullets, className="mt-2 mb-1") if bullets else None,
+                        html.Hr(className="my-2"),
+                        html.Span("Tip: switch to "),
+                        html.Strong("Groq (Llama 3.3)"),
+                        html.Span(" or "),
+                        html.Strong("Gemini"),
+                        html.Span(" — both have a free tier. Select in the AI Provider section above."),
+                    ],
+                    color="warning",
+                ),
+                None,
+                *_no_files,
+                *_no_watch,
+            )
         # Render quota/rate-limit errors with structured guidance
         if "quota" in msg.lower() or "rate limit" in msg.lower() or "429" in msg:
             lines = [s.strip() for s in msg.splitlines() if s.strip()]

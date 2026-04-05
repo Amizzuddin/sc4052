@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:46:06 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:49:51 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -632,6 +632,36 @@ def _call_anthropic(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
             'Please check the key you entered (it should start with "sk-ant-") and try again. '
             "Get a valid key at https://console.anthropic.com/settings/keys"
         ) from exc
+    except _anthropic.RateLimitError as exc:
+        import datetime
+
+        retry_at = (datetime.datetime.now() + datetime.timedelta(seconds=60)).strftime("%H:%M:%S")
+        raise EnvironmentError(
+            f"Anthropic rate limit hit (429). "
+            f"Please wait until {retry_at} (~60s) and try again.\n"
+            f"  \u2022 Check your Anthropic usage at https://console.anthropic.com/settings/usage"
+        ) from exc
+    except _anthropic.BadRequestError as exc:
+        # Extract the human-readable message from the JSON body if present
+        raw = str(exc)
+        try:
+            import json as _json
+
+            # The SDK str() looks like: "Error code: 400 - {...}"
+            json_start = raw.index("{")
+            body = _json.loads(raw[json_start:])
+            clean = body.get("error", {}).get("message") or raw
+        except Exception:
+            clean = raw
+        # Billing / credit errors get structured guidance
+        if "credit" in clean.lower() or "billing" in clean.lower() or "plans" in clean.lower():
+            raise EnvironmentError(
+                f"Anthropic billing error — insufficient credits.\n"
+                f"  \u2022 {clean}\n"
+                f"  \u2022 Top up or upgrade at https://console.anthropic.com/settings/billing\n"
+                f"  \u2022 Switch to Groq (free) or Gemini (free tier) while credits are low."
+            ) from exc
+        raise EnvironmentError(f"Anthropic request error: {clean}") from exc
     except Exception as exc:
         raise EnvironmentError(f"Anthropic API error: {exc}") from exc
     return message.content[0].text.strip()
