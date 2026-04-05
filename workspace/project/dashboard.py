@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:19:39 am                             #
+#  Last Modified: Sunday April 5th 2026 9:27:47 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -60,7 +60,7 @@ from ai_handler import (
     _watch_ci_and_heal,
     check_repo_secrets,
 )
-from dash import Input, Output, State, ctx, dcc, html
+from dash import Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 from docker_handler import DEFAULT_DOCKER_BASE_IMAGE, _generate_compose, _generate_dockerfile
 from generator import SUPPORTED_PLATFORMS, SUPPORTED_PROVIDERS, generate_pipeline
@@ -950,6 +950,8 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
     Output("scan-summary", "style"),
     Output("config-panel", "style"),
     Output("scan-state", "data"),
+    Output("language-checklist", "value", allow_duplicate=True),
+    Output("language-checklist-2", "value", allow_duplicate=True),
     Input("scan-btn", "n_clicks"),
     State("repo-url-input", "value"),
     State("clone-branch-input", "value"),
@@ -964,7 +966,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     visible = {"display": "block"}
 
     if not repo_url or not repo_url.strip():
-        return _alert("Please enter a repository URL.", "warning"), None, hidden, hidden, None
+        return _alert("Please enter a repository URL.", "warning"), None, hidden, hidden, None, no_update, no_update
 
     repo_url = repo_url.strip()
     clone_branch = (clone_branch or "").strip() or None
@@ -991,6 +993,8 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
                 hidden,
                 hidden,
                 None,
+                no_update,
+                no_update,
             )
         clone_url = _inject_token(repo_url, token)
     else:
@@ -1022,17 +1026,27 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
             hidden,
             hidden,
             None,
+            no_update,
+            no_update,
         )
     except Exception as exc:
         _cleanup(clone_path)
-        return _alert(f"Unexpected error during clone: {exc}", "danger"), None, hidden, hidden, None
+        return (
+            _alert(f"Unexpected error during clone: {exc}", "danger"),
+            None,
+            hidden,
+            hidden,
+            None,
+            no_update,
+            no_update,
+        )
 
     # ── Scan ──────────────────────────────────────────────────────────────────
     try:
         scan = scan_repo(clone_path)
     except Exception as exc:
         _cleanup(clone_path)
-        return _alert(f"Scan error: {exc}", "danger"), None, hidden, hidden, None
+        return _alert(f"Scan error: {exc}", "danger"), None, hidden, hidden, None, no_update, no_update
 
     is_empty = len(git.Repo(clone_path).heads) == 0
 
@@ -1081,7 +1095,15 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
         "auth_type": auth_type,
     }
 
-    return None, summary, visible, visible, state
+    # Pre-select detected language(s) in the checklist
+    _half = len(LANGUAGES) // 2 + len(LANGUAGES) % 2
+    _set1 = set(LANGUAGES[:_half])
+    _set2 = set(LANGUAGES[_half:])
+    detected_langs = scan.get("languages") or ([scan.get("language")] if scan.get("language") else [])
+    lang1_values = [l for l in detected_langs if l in _set1]
+    lang2_values = [l for l in detected_langs if l in _set2]
+
+    return None, summary, visible, visible, state, lang1_values, lang2_values
 
 
 @app.callback(
