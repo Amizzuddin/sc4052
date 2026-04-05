@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:10:52 am                             #
+#  Last Modified: Sunday April 5th 2026 9:19:39 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -620,16 +620,30 @@ app.layout = dbc.Container(
                                                                 className="mb-0 ps-3 small",
                                                             ),
                                                             html.Hr(className="my-2"),
-                                                            dbc.Button(
-                                                                "🔍 Check Secrets",
-                                                                id="check-secrets-btn",
-                                                                size="sm",
-                                                                color="secondary",
-                                                                outline=True,
-                                                                n_clicks=0,
-                                                            ),
+                                                            # ── Live secret status ───────────────────────
                                                             html.Div(
                                                                 id="secrets-check-result",
+                                                                children=[
+                                                                    html.Span(
+                                                                        [
+                                                                            html.Code("DOCKER_USERNAME"),
+                                                                            html.Span(
+                                                                                " ⏳ checking…",
+                                                                                className="text-muted ms-1 small",
+                                                                            ),
+                                                                        ],
+                                                                        className="me-4",
+                                                                    ),
+                                                                    html.Span(
+                                                                        [
+                                                                            html.Code("DOCKER_TOKEN"),
+                                                                            html.Span(
+                                                                                " ⏳ checking…",
+                                                                                className="text-muted ms-1 small",
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                ],
                                                                 className="mt-2",
                                                             ),
                                                         ],
@@ -770,6 +784,8 @@ app.layout = dbc.Container(
         dcc.Store(id="ci-watch-state", storage_type="memory"),
         # Polls every 8 s while CI watch is active
         dcc.Interval(id="ci-watch-interval", interval=8_000, n_intervals=0, disabled=True),
+        # Polls every 10 s while Docker push toggle is on to check GitHub secrets
+        dcc.Interval(id="secrets-poll-interval", interval=10_000, n_intervals=0, disabled=True),
     ],
     className="mt-3",
 )
@@ -867,86 +883,65 @@ def toggle_docker_options(docker_values):
 
 @app.callback(
     Output("docker-push-notice-row", "style"),
+    Output("secrets-poll-interval", "disabled"),
     Input("docker-push-toggle", "value"),
 )
 def toggle_docker_push_notice(push_values):
-    """Show secrets setup instructions only when the Docker push toggle is on."""
-    return {"display": "block"} if "push" in (push_values or []) else {"display": "none"}
+    """Show secrets panel and start/stop polling when the Docker push toggle changes."""
+    enabled = "push" in (push_values or [])
+    style = {"display": "block"} if enabled else {"display": "none"}
+    return style, not enabled
 
 
 @app.callback(
     Output("secrets-check-result", "children"),
-    Input("check-secrets-btn", "n_clicks"),
+    Input("secrets-poll-interval", "n_intervals"),
+    State("docker-push-toggle", "value"),
     State("scan-state", "data"),
     State("token-input", "value"),
     prevent_initial_call=True,
 )
-def check_docker_secrets(n_clicks, scan_state, token):
-    """Query the GitHub Secrets API and show which Docker secrets are present."""
+def check_docker_secrets(n_intervals, push_values, scan_state, token):
+    """Poll GitHub Secrets API and update per-secret live status badges."""
     REQUIRED = ["DOCKER_USERNAME", "DOCKER_TOKEN"]
+
+    # Guard: only run when the push toggle is active
+    if "push" not in (push_values or []):
+        raise PreventUpdate
+
+    def _status_row(name: str, status: str, note: str = "") -> html.Span:
+        """Return a per-secret inline badge."""
+        icons = {"ok": " ✅", "missing": " ❌", "checking": " ⏳ checking…", "error": " ⚠️"}
+        colours = {"ok": "text-success", "missing": "text-danger", "checking": "text-muted", "error": "text-warning"}
+        icon_text = icons.get(status, "")
+        colour = colours.get(status, "text-muted")
+        return html.Span(
+            [
+                html.Code(name),
+                html.Span(icon_text + (f" {note}" if note else ""), className=f"{colour} ms-1 small"),
+            ],
+            className="me-4",
+        )
 
     repo_url = (scan_state or {}).get("url", "")
     ghr = _parse_github_repo(repo_url) if repo_url else None
 
     if not ghr:
-        return dbc.Alert(
-            "ℹ️ Secret check is only available for GitHub repositories.",
-            color="secondary",
-            className="py-1 px-2 small mb-0",
-        )
+        return [_status_row(n, "error", "(GitHub repo required)") for n in REQUIRED]
 
     if not (token or "").strip():
-        return dbc.Alert(
-            "ℹ️ Enter your GitHub token in the Authentication section to check secrets.",
-            color="secondary",
-            className="py-1 px-2 small mb-0",
-        )
+        return [_status_row(n, "error", "(token required)") for n in REQUIRED]
 
     owner, repo_name = ghr
     result = check_repo_secrets(owner, repo_name, token.strip(), REQUIRED)
 
-    if not result["can_check"]:
-        return dbc.Alert(
-            "ℹ️ Token or repository information unavailable — cannot check secrets.",
-            color="secondary",
-            className="py-1 px-2 small mb-0",
-        )
+    if not result["can_check"] or result["error"]:
+        note = result.get("error") or "token / permission error"
+        # Truncate long error messages for the badge
+        note = note[:60] + "…" if len(note) > 60 else note
+        return [_status_row(n, "error", f"({note})") for n in REQUIRED]
 
-    if result["error"]:
-        return dbc.Alert(
-            f"⚠️ {result['error']}",
-            color="warning",
-            className="py-1 px-2 small mb-0",
-        )
-
-    found = result["found"]
-    missing = result["missing"]
-
-    def _badge(name, present):
-        return html.Span(
-            [html.Code(name), " ✅" if present else " ❌"],
-            className="me-3",
-        )
-
-    badges = [_badge(n, True) for n in found] + [_badge(n, False) for n in missing]
-
-    if not missing:
-        return dbc.Alert(
-            [html.Strong("✅ Both secrets are configured — Docker push is ready.  "), *badges],
-            color="success",
-            className="py-1 px-2 small mb-0",
-        )
-
-    return dbc.Alert(
-        [
-            html.Strong(f"⚠️ {len(missing)} secret(s) missing:  "),
-            *badges,
-            html.Br(),
-            html.Span("Add the missing secret(s) to your repo before running the pipeline.", className="small"),
-        ],
-        color="warning",
-        className="py-1 px-2 small mb-0",
-    )
+    return [_status_row(n, "ok" if n in result["found"] else "missing") for n in REQUIRED]
 
 
 @app.callback(
