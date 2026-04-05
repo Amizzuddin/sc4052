@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 8:33:59 am                             #
+#  Last Modified: Sunday April 5th 2026 9:48:34 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -350,6 +350,21 @@ RULES:
 
    Never reference per-language base images (python:3.12, node:20, ruby:3.3 etc.)
    in the CI Docker step — the Dockerfile already handles the multi-language setup.
+16. CRITICAL — Python test execution: when the language is Python and tests are detected,
+   NEVER run bare `pytest` because it is not on the PATH in a fresh GitHub Actions runner.
+   ALWAYS use this exact two-command test step:
+     - name: Run tests
+       run: |
+         pip install pytest --quiet
+         python -m pytest --tb=short -q
+       env:
+         PYTHONPATH: .
+   • `pip install pytest` ensures pytest is always available even if it is not in requirements.txt.
+   • `python -m pytest` (not bare `pytest`) adds the project root to sys.path, fixing
+     'ModuleNotFoundError: No module named ...' errors caused by relative package imports.
+   • The `env: PYTHONPATH: .` also guarantees the repo root is importable as a package.
+   If a custom test runner is detected (e.g. pytest-cov, tox), still prepend `pip install <runner>` and
+   still call it via `python -m <runner>` where supported, otherwise prefix with `PYTHONPATH=.`.
 12. CRITICAL — every workflow step MUST have either a `run:` or a `uses:` property.
    NEVER generate a step that contains only a `name:` (with or without comments).
    If a step is optional or a placeholder, still include a real `run:` with an
@@ -791,6 +806,121 @@ def _strip_docker_push_steps(yaml_content: str) -> str:
     return "".join(preamble2) + "".join("".join(b) for b in filtered) + "".join(tail2)
 
 
+def _patch_python_test_steps(yaml_content: str, scan: dict) -> str:
+    """
+    Post-process the LLM YAML to guarantee Python tests always work:
+      1. Replace bare `pytest ...` invocations with `python -m pytest ...`
+      2. Prepend `pip install pytest --quiet` so the runner is never missing
+      3. Inject `env: PYTHONPATH: "."` on every affected step so relative
+         package imports (e.g. `from workspace.x import y`) resolve correctly.
+
+    Only activates when the primary language is Python.
+    """
+    raw_lang = scan.get("languages") or scan.get("language")
+    langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
+    if "python" not in langs:
+        return yaml_content
+
+    lines = yaml_content.splitlines(keepends=True)
+    result: list[str] = []
+    i = 0
+
+    # Detect step bullets (leading spaces + "- ")
+    step_indent: str | None = None
+    for line in lines:
+        m = re.match(r"^(\s+)-\s+", line)
+        if m:
+            step_indent = m.group(1)
+            break
+
+    if step_indent is None:
+        return yaml_content
+
+    step_bullet = re.compile(r"^" + re.escape(step_indent) + r"-\s")
+
+    while i < len(lines):
+        line = lines[i]
+
+        # ── Detect an inline `run: pytest ...` ────────────────────────────────
+        inline_pytest = re.match(r"^(\s*)run:\s+(pytest\b.*)$", line.rstrip())
+        if inline_pytest and "python -m" not in line:
+            leading = inline_pytest.group(1)
+            rest = inline_pytest.group(2)
+            new_rest = re.sub(r"\bpytest\b", "python -m pytest", rest)
+            result.append(f"{leading}run: |\n")
+            result.append(f"{leading}  pip install pytest --quiet\n")
+            result.append(f"{leading}  {new_rest}\n")
+            result.append(f"{leading}env:\n")
+            result.append(f'{leading}  PYTHONPATH: "."\n')
+            i += 1
+            continue
+
+        # ── Detect a `run: |` block ────────────────────────────────────────────
+        run_block_match = re.match(r"^(\s*)run:\s*[|>][-]?\s*$", line.rstrip())
+        if run_block_match:
+            block_indent = run_block_match.group(1)
+            body_indent = block_indent + "  "
+            block_lines: list[str] = [line]
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                if nxt.strip() == "" or nxt.startswith(body_indent):
+                    block_lines.append(nxt)
+                    i += 1
+                else:
+                    break
+            body_text = "".join(block_lines[1:])
+            # Only patch if block contains bare pytest and NOT already python -m pytest
+            if re.search(r"\bpytest\b", body_text) and "python -m pytest" not in body_text:
+                # Rewrite line by line inside the block
+                patched: list[str] = [block_lines[0]]  # keep the `run: |` line
+                has_pip_install = "pip install pytest" in body_text
+                if not has_pip_install:
+                    patched.append(f"{body_indent}pip install pytest --quiet\n")
+                for bl in block_lines[1:]:
+                    patched.append(re.sub(r"\bpytest\b", "python -m pytest", bl))
+                result.extend(patched)
+                # Now look ahead for an existing `env:` block to patch, or inject one
+                # Check if the NEXT non-blank content at the same or shallower indent
+                # is already an `env:` key belonging to this step
+                env_injected = False
+                if i < len(lines):
+                    peek = lines[i].rstrip()
+                    if re.match(r"^" + re.escape(block_indent) + r"env:\s*$", peek):
+                        # There's already an env: block — add PYTHONPATH into it
+                        result.append(lines[i])
+                        i += 1
+                        env_body_indent = block_indent + "  "
+                        # Consume existing env vars and check for PYTHONPATH
+                        existing_pythonpath = False
+                        env_lines: list[str] = []
+                        while i < len(lines):
+                            el = lines[i]
+                            if el.strip() == "" or el.startswith(env_body_indent):
+                                if "PYTHONPATH" in el:
+                                    existing_pythonpath = True
+                                env_lines.append(el)
+                                i += 1
+                            else:
+                                break
+                        if not existing_pythonpath:
+                            result.append(f'{env_body_indent}PYTHONPATH: "."\n')
+                        result.extend(env_lines)
+                        env_injected = True
+                if not env_injected:
+                    result.append(f"{block_indent}env:\n")
+                    result.append(f'{block_indent}  PYTHONPATH: "."\n')
+                continue  # i already advanced past the block
+            else:
+                result.extend(block_lines)
+                continue
+
+        result.append(line)
+        i += 1
+
+    return "".join(result)
+
+
 def generate_pipeline(
     scan: dict,
     platform: str = "github-actions",
@@ -820,6 +950,7 @@ def generate_pipeline(
     result = _patch_docker_steps(_strip_markdown_fences(raw), has_compose=has_compose)
     if not docker_push_enabled:
         result = _strip_docker_push_steps(result)
+    result = _patch_python_test_steps(result, scan)
     return result
 
 

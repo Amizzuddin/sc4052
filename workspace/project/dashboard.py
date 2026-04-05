@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:27:47 am                             #
+#  Last Modified: Sunday April 5th 2026 9:48:37 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -738,7 +738,7 @@ app.layout = dbc.Container(
                                     ),
                                     dbc.FormText(
                                         "GitHub Actions only. Requires a token. "
-                                        "Monitors the run and pushes fixes (up to 5 attempts)."
+                                        "Monitors the run and pushes fixes (up to 10 attempts)."
                                     ),
                                 ],
                                 className="d-flex flex-column justify-content-center",
@@ -1352,7 +1352,7 @@ def generate_pipeline_cb(
                     "status": "watching",
                     "done": False,
                     "attempt": 1,
-                    "max_retries": 5,
+                    "max_retries": 10,
                     "progress": 5,
                 }
             _ci_cancel_flags[watch_id] = cancel_ev
@@ -1370,7 +1370,7 @@ def generate_pipeline_cb(
                     provider=provider,
                     api_key=resolved_api_key,
                     cancel_event=cancel_ev,
-                    max_retries=5,
+                    max_retries=10,
                 ),
                 daemon=True,
             ).start()
@@ -1526,7 +1526,7 @@ def poll_ci_watch_status(n_intervals, watch_state):
     status = entry.get("status", "watching")
     progress = entry.get("progress", 0)
     attempt = entry.get("attempt", 1)
-    max_retries = entry.get("max_retries", 5)
+    max_retries = entry.get("max_retries", 10)
 
     color_map = {
         "passed": "success",
