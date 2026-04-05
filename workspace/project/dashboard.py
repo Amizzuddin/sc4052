@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 1:30:05 pm                           #
+#  Last Modified: Saturday April 4th 2026 2:49:26 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -511,7 +511,7 @@ app.layout = dbc.Container(
                                         id="docker-toggle",
                                         options=[
                                             {
-                                                "label": " Generate a Dockerfile + CI build & push step",
+                                                "label": " Generate a Dockerfile + CI build step",
                                                 "value": "docker",
                                             }
                                         ],
@@ -550,6 +550,79 @@ app.layout = dbc.Container(
                                                 switch=True,
                                                 persistence=True,
                                                 persistence_type="session",
+                                            ),
+                                            # ── Push toggle ─────────────────────────────────
+                                            dbc.Checklist(
+                                                id="docker-push-toggle",
+                                                options=[
+                                                    {
+                                                        "label": " Push image to Docker Hub",
+                                                        "value": "push",
+                                                    }
+                                                ],
+                                                value=[],
+                                                switch=True,
+                                                className="mt-2",
+                                                persistence=True,
+                                                persistence_type="session",
+                                            ),
+                                            # Secrets notice — only visible when push toggle is on
+                                            html.Div(
+                                                id="docker-push-notice-row",
+                                                style={"display": "none"},
+                                                children=[
+                                                    dbc.Alert(
+                                                        [
+                                                            html.Strong("🔐 GitHub Secrets required for Docker push"),
+                                                            html.Hr(className="my-2"),
+                                                            html.P(
+                                                                "The push step runs only when both secrets exist on your "
+                                                                "repository — they are never written to the YAML file.",
+                                                                className="mb-2 small",
+                                                            ),
+                                                            html.Strong(
+                                                                "Add two secrets to your repo:", className="small"
+                                                            ),
+                                                            html.Ol(
+                                                                [
+                                                                    html.Li(
+                                                                        [
+                                                                            "Repo → ",
+                                                                            html.Strong("Settings"),
+                                                                            " → ",
+                                                                            html.Strong("Secrets and variables"),
+                                                                            " → ",
+                                                                            html.Strong("Actions"),
+                                                                            " → ",
+                                                                            html.Strong("New repository secret"),
+                                                                        ]
+                                                                    ),
+                                                                    html.Li(
+                                                                        [
+                                                                            html.Code("DOCKER_USERNAME"),
+                                                                            " — your Docker Hub username",
+                                                                        ]
+                                                                    ),
+                                                                    html.Li(
+                                                                        [
+                                                                            html.Code("DOCKER_TOKEN"),
+                                                                            " — a Docker Hub ",
+                                                                            html.A(
+                                                                                "Access Token",
+                                                                                href="https://hub.docker.com/settings/security",
+                                                                                target="_blank",
+                                                                            ),
+                                                                            " (not your password)",
+                                                                        ]
+                                                                    ),
+                                                                ],
+                                                                className="mb-0 ps-3 small",
+                                                            ),
+                                                        ],
+                                                        color="info",
+                                                        className="mt-2 mb-0",
+                                                    )
+                                                ],
                                             ),
                                         ],
                                     ),
@@ -779,6 +852,15 @@ def toggle_docker_options(docker_values):
 
 
 @app.callback(
+    Output("docker-push-notice-row", "style"),
+    Input("docker-push-toggle", "value"),
+)
+def toggle_docker_push_notice(push_values):
+    """Show secrets setup instructions only when the Docker push toggle is on."""
+    return {"display": "block"} if "push" in (push_values or []) else {"display": "none"}
+
+
+@app.callback(
     Output("scan-status", "children"),
     Output("scan-summary", "children"),
     Output("scan-summary", "style"),
@@ -932,6 +1014,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     State("docker-toggle", "value"),
     State("docker-base-image", "value"),
     State("docker-compose-toggle", "value"),
+    State("docker-push-toggle", "value"),
     State("platform-dropdown", "value"),
     State("branch-input", "value"),
     State("extra-requirements", "value"),
@@ -951,6 +1034,7 @@ def generate_pipeline_cb(
     docker_values,
     docker_base_image,
     docker_compose_values,
+    docker_push_values,
     platform,
     branch_name,
     extra_requirements,
@@ -982,7 +1066,8 @@ def generate_pipeline_cb(
     platform = platform or "github-actions"
     wants_docker = "docker" in (docker_values or [])
     wants_compose = "compose" in (docker_compose_values or [])
-    wants_push = "push" in (push_values or [])
+    wants_push = "push" in (push_values or [])  # push branch to remote
+    wants_docker_push = "push" in (docker_push_values or [])  # push Docker image to Hub
     extra_requirements = (extra_requirements or "").strip()
 
     if language or language2 or language_custom:
@@ -1059,7 +1144,14 @@ def generate_pipeline_cb(
 
     # ── Generate ──────────────────────────────────────────────────────────────
     try:
-        yaml_content = generate_pipeline(scan, platform, full_extras, api_key=resolved_api_key, provider=provider)
+        yaml_content = generate_pipeline(
+            scan,
+            platform,
+            full_extras,
+            docker_push_enabled=wants_docker_push,
+            api_key=resolved_api_key,
+            provider=provider,
+        )
         yaml_content = _sanitize_expressions(yaml_content, platform)
         yaml_content = _sanitize_runner(yaml_content, platform)
     except (EnvironmentError, ImportError) as exc:
@@ -1213,6 +1305,66 @@ def generate_pipeline_cb(
                 label="docker-compose.yml",
             )
         )
+    # Docker push notice — shown only when the user enabled Docker push
+    docker_push_notice = (
+        dbc.Alert(
+            [
+                html.Strong("🔐 Docker image push included — GitHub Secrets required"),
+                html.Hr(className="my-2"),
+                html.P(
+                    [
+                        "The pipeline logs in to Docker Hub and pushes only when ",
+                        html.Strong("both secrets are configured"),
+                        " on your repository. The push step is skipped automatically "
+                        "if either secret is absent — your token is never written to the YAML.",
+                    ],
+                    className="mb-2 small",
+                ),
+                html.Strong("Add these two secrets to your repo:", className="small"),
+                html.Ol(
+                    [
+                        html.Li(
+                            [
+                                "Repo → ",
+                                html.Strong("Settings"),
+                                " → ",
+                                html.Strong("Secrets and variables"),
+                                " → ",
+                                html.Strong("Actions"),
+                                " → ",
+                                html.Strong("New repository secret"),
+                            ]
+                        ),
+                        html.Li(
+                            [
+                                html.Code("DOCKER_USERNAME"),
+                                " — your Docker Hub username",
+                            ]
+                        ),
+                        html.Li(
+                            [
+                                html.Code("DOCKER_TOKEN"),
+                                " — a Docker Hub ",
+                                html.A(
+                                    "Access Token",
+                                    href="https://hub.docker.com/settings/security",
+                                    target="_blank",
+                                ),
+                                " (not your account password)",
+                            ]
+                        ),
+                        html.Li("Re-run the workflow — the push step will now execute."),
+                    ],
+                    className="mb-0 ps-3 small",
+                ),
+            ],
+            color="info",
+            className="mt-2 mb-3",
+        )
+        if wants_docker_push
+        else None
+    )
+
     preview = _section(
         "Generated Files",
         [
@@ -1221,6 +1373,7 @@ def generate_pipeline_cb(
                 id="download-btn",
                 href="#",
             ),
+            docker_push_notice,
             dbc.Tabs(preview_tabs),
         ],
     )

@@ -23,6 +23,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     --mount=target=/var/cache/apt,type=cache,id=apt \
     apt-get install -y --no-install-recommends \
     wget \
+    git \
     python3-pip
 
 # Install dependencies python packages
@@ -76,8 +77,7 @@ FROM base AS dev
 RUN --mount=target=/var/lib/apt/lists,type=cache,id=apt \
     --mount=target=/var/cache/apt,type=cache,id=apt \
     apt-get install -y --no-install-recommends \
-    ssh \
-    git
+    ssh
 
 # Install development python packages
 COPY .devcontainer/requirements.txt .

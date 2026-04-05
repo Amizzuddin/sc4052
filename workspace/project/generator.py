@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 8:00:56 am                           #
+#  Last Modified: Saturday April 4th 2026 2:25:51 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -191,7 +191,9 @@ def _build_install_command(scan: dict) -> str:  # kept for compat
     return "  &&  ".join(_build_install_commands(scan))
 
 
-def build_generation_prompt(scan: dict, platform: str, extra_requirements: str = "") -> str:
+def build_generation_prompt(
+    scan: dict, platform: str, extra_requirements: str = "", docker_push_enabled: bool = False
+) -> str:
     """
     Build the full system + user prompt for initial config generation.
 
@@ -217,6 +219,7 @@ def build_generation_prompt(scan: dict, platform: str, extra_requirements: str =
     lint_cmd = defaults.get("lint") or "echo 'no lint'"
     runtime = defaults.get("runtime", "ubuntu-latest")
     has_docker = "docker" in scan.get("deploy_targets", [])
+    has_compose = "docker-compose" in scan.get("deploy_targets", [])
 
     extra_section = f"\nAdditional requirements:\n{extra_requirements.strip()}" if extra_requirements.strip() else ""
 
@@ -232,6 +235,8 @@ INFERRED COMMANDS:
 - Lint                 : {lint_cmd}
 - Primary runtime      : {runtime}
 - Docker build needed  : {has_docker}
+- Docker Compose file  : {has_compose}
+- Docker push enabled  : {docker_push_enabled}
 
 PLATFORM INSTRUCTIONS:
 {platform_note}
@@ -285,11 +290,63 @@ RULES:
 11. IMPORTANT — Docker builds: when `Docker build needed: true`, a single multi-language
    Dockerfile is already committed to the repo root (it covers ALL selected languages in
    one image — do NOT create per-language images).
-   Use these exact commands for the Docker build step:
+   When `Docker Compose file: true`, ALWAYS prefer docker compose commands over plain
+   docker build.  Use these exact patterns:
+
+   ── BUILD STEP (always runs) ──────────────────────────────────────────────
+   IF Docker Compose file is true (guard for file existence):
+   - GitHub Actions / GitLab CI / Jenkins:
+       if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then docker compose build; fi
+
+   IF Docker Compose file is false (plain Dockerfile only):
    - GitHub Actions : docker build -t ${{{{github.repository}}}}:${{{{github.sha}}}} .
    - GitLab CI      : docker build -t $CI_PROJECT_PATH:$CI_COMMIT_SHA .
    - Jenkins        : sh "docker build -t ${{env.JOB_NAME}}:${{env.GIT_COMMIT}} ."
-   For push, add: docker push <image>:<tag>
+
+   ── LOGIN + PUSH STEP ───────────────────────────────────────────────────
+   Check `Docker push enabled`:
+   - If `Docker push enabled: False` — OMIT the login and push steps entirely.
+     Generate ONLY the build step above. Do NOT add docker login, docker push,
+     or any image-upload step.
+   - If `Docker push enabled: True` — add the login + push steps below.
+     The push MUST be conditional on the DOCKER_TOKEN secret being present.
+     NEVER echo, print, log, or expose the token value anywhere.
+
+   For GitHub Actions (push enabled) — use a step-level `if:` condition:
+
+     - name: Docker login
+       if: ${{{{ secrets.DOCKER_TOKEN != '' }}}}
+       run: echo "${{{{ secrets.DOCKER_TOKEN }}}}" | docker login -u "${{{{ secrets.DOCKER_USERNAME }}}}" --password-stdin
+
+     - name: Docker push
+       if: ${{{{ secrets.DOCKER_TOKEN != '' }}}}
+       run: |
+         if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
+           docker compose push
+         else
+           docker push ${{{{github.repository}}}}:${{{{github.sha}}}}
+         fi
+
+   For GitLab CI (push enabled) — wrap login and push in a bash guard:
+     script:
+       - |
+         if [ -n "$DOCKER_TOKEN" ]; then
+           echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+           docker compose push
+         else
+           echo "DOCKER_TOKEN not set — skipping push"
+         fi
+
+   For Jenkins (push enabled) — use a bash guard (note: no curly braces around var names):
+     sh '''
+       if [ -n "${{DOCKER_TOKEN}}" ]; then
+         echo "${{DOCKER_TOKEN}}" | docker login -u "${{DOCKER_USERNAME}}" --password-stdin
+         docker compose push
+       else
+         echo "DOCKER_TOKEN not set — skipping push"
+       fi
+     '''
+
    Never reference per-language base images (python:3.12, node:20, ruby:3.3 etc.)
    in the CI Docker step — the Dockerfile already handles the multi-language setup.
 12. CRITICAL — every workflow step MUST have either a `run:` or a `uses:` property.
@@ -311,6 +368,13 @@ RULES:
    `ubuntu-16.04`, `macos-10.15`, or any pinned version that is not `ubuntu-latest`,
    `ubuntu-22.04`, or `ubuntu-24.04`.  Using `ubuntu-20.04` will leave the job
    permanently queued because GitHub has retired that image.
+15. CRITICAL — secret safety: NEVER echo, print, log, or expose any secret value.
+   The DOCKER_TOKEN / DOCKER_PASSWORD must only ever appear inside the `--password-stdin`
+   pipe or a credentials-binding block. Forbidden patterns (never output these):
+     echo "${{{{secrets.DOCKER_TOKEN}}}}"   # only acceptable inside | docker login --password-stdin
+     run: echo "${{{{secrets.DOCKER_TOKEN}}}}"   # WRONG if not piped to docker login
+   The login command MUST take this exact form and nothing else:
+     echo "${{{{secrets.DOCKER_TOKEN}}}}" | docker login -u "${{{{secrets.DOCKER_USERNAME}}}}" --password-stdin
 Generate the pipeline configuration now:"""
 
     return prompt
@@ -526,6 +590,7 @@ def generate_pipeline(
     scan: dict,
     platform: str = "github-actions",
     extra_requirements: str = "",
+    docker_push_enabled: bool = False,
     api_key: str | None = None,
     provider: str = "gemini",
 ) -> str:
@@ -536,6 +601,7 @@ def generate_pipeline(
         scan:                Output from scanner.scan_repo()
         platform:            Target CI/CD platform
         extra_requirements:  Optional extra requirements in plain English
+        docker_push_enabled: Whether to include Docker login + push steps
 
     Returns:
         Generated YAML string
@@ -543,7 +609,7 @@ def generate_pipeline(
     if platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"Unsupported platform '{platform}'. Choose from: {SUPPORTED_PLATFORMS}")
 
-    prompt = build_generation_prompt(scan, platform, extra_requirements)
+    prompt = build_generation_prompt(scan, platform, extra_requirements, docker_push_enabled=docker_push_enabled)
     raw = _call_llm(prompt, provider=provider, api_key=api_key)
     return _strip_markdown_fences(raw)
 
