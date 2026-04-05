@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 1:21:22 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:27:13 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1481,7 +1481,6 @@ def generate_pipeline_cb(
                     "status": "watching",
                     "done": False,
                     "attempt": 1,
-                    "progress": 5,
                 }
             _ci_cancel_flags[watch_id] = cancel_ev
             threading.Thread(
@@ -1627,12 +1626,11 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
     steps = entry.get("steps", [])
     done = entry.get("done", False)
     status = entry.get("status", "watching")
-    progress = entry.get("progress", 0)
     attempt = entry.get("attempt", 1)
+    last_failure = entry.get("last_failure", [])
     color_map = {
         "passed": "success",
-        "gave_up": "danger",
-        "error": "warning",
+        "error": "danger",
         "watching": "info",
         "cancelled": "secondary",
     }
@@ -1640,22 +1638,11 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
 
     title_map = {
         "passed": "✅ CI passed!",
-        "gave_up": "❌ CI auto-fix gave up",
-        "error": "⚠ CI watcher error",
+        "error": "❌ CI watch stopped — see log",
         "watching": f"⏳ Watching CI…  (attempt {attempt})",
         "cancelled": "🚫 Watch cancelled",
     }
     title = title_map.get(status, "CI watch")
-
-    # ── Progress bar ─────────────────────────────────────────────────────────────
-    progress_bar = dbc.Progress(
-        value=progress,
-        striped=not done,
-        animated=not done,
-        color=color if done else "info",
-        style={"height": "6px"},
-        className="mb-2",
-    )
 
     # ── Steps timeline ──────────────────────────────────────────────────────────
     step_icons = {"pending": "○", "running": "▶", "passed": "✅", "failed": "❌", "skipped": "−"}
@@ -1676,6 +1663,32 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
         )
         for s in steps
     ]
+
+    # ── Failed steps (shown prominently when present) ────────────────────────────
+    failure_section = (
+        html.Div(
+            [
+                html.Span("Failed at: ", className="fw-semibold text-danger me-1", style={"fontSize": "0.82rem"}),
+                *[
+                    html.Code(
+                        lbl,
+                        className="me-1",
+                        style={
+                            "fontSize": "0.78rem",
+                            "background": "#fde8e8",
+                            "padding": "1px 5px",
+                            "borderRadius": "3px",
+                            "color": "#b91c1c",
+                        },
+                    )
+                    for lbl in last_failure
+                ],
+            ],
+            className="mb-1",
+        )
+        if last_failure
+        else None
+    )
 
     # ── Log tail ─────────────────────────────────────────────────────────────────────
     log_tail = html.Details(
@@ -1699,7 +1712,7 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
 
     card = dbc.Card(
         dbc.CardBody(
-            [html.Strong(title), progress_bar, html.Div(step_items, className="mb-1"), log_tail],
+            [html.Strong(title), html.Div(step_items, className="mt-1 mb-1"), failure_section, log_tail],
             className="py-2 px-3",
         ),
         className="mt-2",

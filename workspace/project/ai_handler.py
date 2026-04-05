@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 1:21:23 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:27:14 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -354,15 +354,10 @@ def _watch_ci_and_heal(
             steps.append({"label": label, "status": status})
             return len(steps) - 1
 
-    def _set_progress(pct: int) -> None:
-        with _ci_watch_lock:
-            _ci_watch_results[watch_id]["progress"] = max(0, min(100, pct))
-
-    def _finish(status: str, progress: int = 100) -> None:
+    def _finish(status: str) -> None:
         with _ci_watch_lock:
             _ci_watch_results[watch_id]["status"] = status
             _ci_watch_results[watch_id]["done"] = True
-            _ci_watch_results[watch_id]["progress"] = progress
 
     def _cancelled() -> bool:
         return _cancel.is_set()
@@ -395,8 +390,6 @@ def _watch_ci_and_heal(
         else:
             wait_run_idx = _add_step(f"Attempt {attempt}: waiting for new Actions run", "running")
             run_progress_idx = _add_step(f"Attempt {attempt}: CI run in progress", "pending")
-
-        _set_progress(min(5 + (attempt - 1) * 10, 85))
 
         # Wait for an Actions run to appear on this branch
         run_id = None
@@ -432,7 +425,6 @@ def _watch_ci_and_heal(
 
         _set_step(wait_run_idx, "passed")
         _set_step(run_progress_idx, "running")
-        _set_progress(min(15 + (attempt - 1) * 10, 85))
 
         # Poll until the run completes
         timeout_ticks = 90
@@ -446,7 +438,6 @@ def _watch_ci_and_heal(
             conclusion = run_data.get("conclusion", "")
             elapsed = tick * 12
             _log(f"Run #{run_id}  status={run_status}  conclusion={conclusion}  elapsed={elapsed}s")
-            _set_progress(min(int(15 + (tick / timeout_ticks) * 60), 90))
             if run_status == "completed":
                 break
             _cancel.wait(12)
@@ -458,16 +449,30 @@ def _watch_ci_and_heal(
 
         if conclusion == "success":
             _set_step(run_progress_idx, "passed")
-            _finish("passed", progress=100)
+            _finish("passed")
             _log(f"✅ CI passed on attempt {attempt}!")
             return
 
         _set_step(run_progress_idx, "failed")
 
+        # ── Identify which job step(s) failed ────────────────────────────────
+        jobs_data = _github_api(f"/repos/{owner}/{repo_name}/actions/runs/{run_id}/jobs", token) or {}
+        failed_steps: list[str] = []
+        for _job in jobs_data.get("jobs", []):
+            for _step in _job.get("steps", []):
+                if _step.get("conclusion") in ("failure", "timed_out"):
+                    failed_steps.append(f"{_job['name']} → {_step['name']}")
+        if failed_steps:
+            with _ci_watch_lock:
+                _ci_watch_results[watch_id]["last_failure"] = failed_steps
+            for _lbl in failed_steps:
+                _log(f"❌ Failed step: {_lbl}")
+        else:
+            _log(f"❌ CI failed (attempt {attempt}) — no individual step identified.")
+
         # Fetch logs & ask LLM (no limit — user cancels when done)
-        _set_progress(60 + (attempt - 1) * 30)
         llm_idx = _add_step(f"Fix attempt {attempt}: fetching logs & asking LLM", "running")
-        _log(f"❌ CI failed (attempt {attempt}). Fetching logs...")
+        _log(f"Fetching full logs for attempt {attempt}...")
 
         log_bytes = _github_api_raw(f"/repos/{owner}/{repo_name}/actions/runs/{run_id}/logs", token)
         error_log = _extract_log_text(log_bytes) if log_bytes else "(log unavailable)"
@@ -495,7 +500,7 @@ def _watch_ci_and_heal(
         except Exception as e:
             _set_step(llm_idx, "failed")
             _log(f"⚠ Could not parse LLM fix: {e}. Stopping.")
-            _finish("gave_up")
+            _finish("error")
             return
 
         # Apply fixes & push
@@ -516,13 +521,13 @@ def _watch_ci_and_heal(
         except Exception as e:
             _set_step(push_idx, "failed")
             _log(f"⚠ Could not write fix files: {e}.")
-            _finish("gave_up")
+            _finish("error")
             return
 
         if not files_changed:
             _set_step(push_idx, "skipped")
             _log("⚠ LLM returned no file changes. Stopping.")
-            _finish("gave_up")
+            _finish("error")
             return
 
         # Ensure every fixed file has a trailing newline, then run a focused
@@ -559,5 +564,3 @@ def _watch_ci_and_heal(
             return
 
         _cancel.wait(15)
-
-    _finish("gave_up")
