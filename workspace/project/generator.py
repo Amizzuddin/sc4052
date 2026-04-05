@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 9:48:34 am                             #
+#  Last Modified: Sunday April 5th 2026 9:58:08 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -50,6 +50,34 @@ PROVIDER_DEFAULTS = {
 # ── Supported CI/CD platforms ─────────────────────────────────────────────────
 
 SUPPORTED_PLATFORMS = ["github-actions", "gitlab-ci", "jenkins"]
+
+# ── Test-runner install configuration ────────────────────────────────────────
+# Keyed by the exact string returned by scanner.detect_tests() as test_runner.
+# install_cmd : shell command to install the runner; None = toolchain built-in
+# find_re     : regex that matches the runner command inside a run: block
+# rewrite_re  : (old, new) pair for rewriting the invocation; None = no rewrite
+# extra_env   : dict of extra env vars to inject on the step; None = none
+TEST_RUNNER_INSTALL: dict[str, dict] = {
+    "pytest": {
+        "install_cmd": "pip install pytest --quiet",
+        "find_re": r"\bpytest\b",
+        "rewrite_re": (r"\bpytest\b", "python -m pytest"),
+        "extra_env": {"PYTHONPATH": "."},
+    },
+    # Node: npm/yarn/pnpm install already handles jest/mocha etc. via package.json
+    "npm test": {"install_cmd": None, "find_re": None, "rewrite_re": None, "extra_env": None},
+    # Go, Rust, Java: runners are part of the language toolchain
+    "go test ./...": {"install_cmd": None, "find_re": None, "rewrite_re": None, "extra_env": None},
+    "cargo test": {"install_cmd": None, "find_re": None, "rewrite_re": None, "extra_env": None},
+    "mvn test": {"install_cmd": None, "find_re": None, "rewrite_re": None, "extra_env": None},
+    # Ruby: bundle install handles rspec, but gem install acts as a safety net
+    "bundle exec rspec": {
+        "install_cmd": "gem install rspec --no-document -q 2>/dev/null || true",
+        "find_re": r"bundle\s+exec\s+rspec\b",
+        "rewrite_re": None,
+        "extra_env": None,
+    },
+}
 
 PLATFORM_NOTES = {
     "github-actions": (
@@ -350,21 +378,33 @@ RULES:
 
    Never reference per-language base images (python:3.12, node:20, ruby:3.3 etc.)
    in the CI Docker step — the Dockerfile already handles the multi-language setup.
-16. CRITICAL — Python test execution: when the language is Python and tests are detected,
-   NEVER run bare `pytest` because it is not on the PATH in a fresh GitHub Actions runner.
-   ALWAYS use this exact two-command test step:
+16. CRITICAL — Test runner installation: when a test runner is detected the CI step MUST
+   explicitly install it before running tests, even if it may be listed in a dependency
+   file — the explicit install acts as a safety net for runners that are absent from
+   requirements files and guarantees the binary is on the PATH.
+
+   Use these exact patterns depending on the detected runner:
+
+   Python / pytest:
      - name: Run tests
        run: |
          pip install pytest --quiet
          python -m pytest --tb=short -q
        env:
          PYTHONPATH: .
-   • `pip install pytest` ensures pytest is always available even if it is not in requirements.txt.
-   • `python -m pytest` (not bare `pytest`) adds the project root to sys.path, fixing
-     'ModuleNotFoundError: No module named ...' errors caused by relative package imports.
-   • The `env: PYTHONPATH: .` also guarantees the repo root is importable as a package.
-   If a custom test runner is detected (e.g. pytest-cov, tox), still prepend `pip install <runner>` and
-   still call it via `python -m <runner>` where supported, otherwise prefix with `PYTHONPATH=.`.
+   (Use `python -m pytest` — NOT bare `pytest` — to keep the project root on sys.path.)
+
+   Ruby / rspec:
+     - name: Run tests
+       run: |
+         gem install rspec --no-document -q 2>/dev/null || true
+         bundle exec rspec
+
+   Node (npm test): no extra install step required; npm ci / npm install already
+     sets up all test dependencies from package.json.
+
+   Go (go test), Rust (cargo test), Java (mvn test): these runners are part of the
+     language toolchain already present on the runner — no additional install needed.
 12. CRITICAL — every workflow step MUST have either a `run:` or a `uses:` property.
    NEVER generate a step that contains only a `name:` (with or without comments).
    If a step is optional or a placeholder, still include a real `run:` with an
@@ -806,16 +846,152 @@ def _strip_docker_push_steps(yaml_content: str) -> str:
     return "".join(preamble2) + "".join("".join(b) for b in filtered) + "".join(tail2)
 
 
-def _patch_python_test_steps(yaml_content: str, scan: dict) -> str:
+def _patch_test_runner_steps(yaml_content: str, scan: dict) -> str:
     """
-    Post-process the LLM YAML to guarantee Python tests always work:
-      1. Replace bare `pytest ...` invocations with `python -m pytest ...`
-      2. Prepend `pip install pytest --quiet` so the runner is never missing
-      3. Inject `env: PYTHONPATH: "."` on every affected step so relative
-         package imports (e.g. `from workspace.x import y`) resolve correctly.
+    Post-process LLM-generated YAML to guarantee every detected test runner is
+    explicitly installed before it is invoked.
 
-    Only activates when the primary language is Python.
+    Uses TEST_RUNNER_INSTALL to look up the runner reported by the scanner and,
+    when an install_cmd is defined:
+      1. Prepends the install command inside the run: block
+      2. Applies any invocation rewrite (e.g. pytest → python -m pytest)
+      3. Injects an extra ``env:`` block on the step when required
+         (e.g. PYTHONPATH for Python)
+
+    Runners whose install_cmd is None (Go, Rust, Java, Node) ship with the
+    standard toolchain and are left unchanged.
     """
+    test_runner: str = (scan.get("tests") or {}).get("test_runner") or ""
+    if not test_runner:
+        return yaml_content
+
+    cfg = TEST_RUNNER_INSTALL.get(test_runner)
+    if cfg is None:
+        # Unknown runner — try to match the first word as a package name
+        first_word = test_runner.split()[0]
+        cfg = {
+            "install_cmd": None,
+            "find_re": re.escape(first_word),
+            "rewrite_re": None,
+            "extra_env": None,
+        }
+
+    install_cmd: str | None = cfg["install_cmd"]
+    find_re: str | None = cfg["find_re"]
+    rewrite_re: tuple | None = cfg["rewrite_re"]
+    extra_env: dict | None = cfg["extra_env"]
+
+    # Nothing to do when no install and no rewrite are needed
+    if install_cmd is None and rewrite_re is None and extra_env is None:
+        return yaml_content
+    # Also nothing to do when there is no search pattern
+    if not find_re:
+        return yaml_content
+
+    lines = yaml_content.splitlines(keepends=True)
+    result: list[str] = []
+    i = 0
+
+    # Detect step-bullet indent (leading spaces before "- name:" etc.)
+    step_indent: str | None = None
+    for line in lines:
+        m = re.match(r"^(\s+)-\s+", line)
+        if m:
+            step_indent = m.group(1)
+            break
+    if step_indent is None:
+        return yaml_content
+
+    while i < len(lines):
+        line = lines[i]
+
+        # ── Inline `run: <runner> ...` ─────────────────────────────────────
+        inline_match = re.match(r"^(\s*)run:\s+(" + find_re + r".*)$", line.rstrip())
+        if inline_match and (rewrite_re is None or rewrite_re[1] not in line):
+            leading = inline_match.group(1)
+            rest = inline_match.group(2)
+            if rewrite_re:
+                rest = re.sub(rewrite_re[0], rewrite_re[1], rest)
+            result.append(f"{leading}run: |\n")
+            if install_cmd:
+                result.append(f"{leading}  {install_cmd}\n")
+            result.append(f"{leading}  {rest}\n")
+            if extra_env:
+                result.append(f"{leading}env:\n")
+                for k, v in extra_env.items():
+                    result.append(f'{leading}  {k}: "{v}"\n')
+            i += 1
+            continue
+
+        # ── `run: |` block ───────────────────────────────────────────────
+        run_block_match = re.match(r"^(\s*)run:\s*[|>][-]?\s*$", line.rstrip())
+        if run_block_match:
+            block_indent = run_block_match.group(1)
+            body_indent = block_indent + "  "
+            block_lines: list[str] = [line]
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                if nxt.strip() == "" or nxt.startswith(body_indent):
+                    block_lines.append(nxt)
+                    i += 1
+                else:
+                    break
+            body_text = "".join(block_lines[1:])
+
+            # Only patch if the runner appears and hasn't been rewritten already
+            already_rewritten = rewrite_re and rewrite_re[1] in body_text
+            if re.search(find_re, body_text) and not already_rewritten:
+                patched: list[str] = [block_lines[0]]  # keep `run: |` line
+                if install_cmd and install_cmd not in body_text:
+                    patched.append(f"{body_indent}{install_cmd}\n")
+                for bl in block_lines[1:]:
+                    if rewrite_re:
+                        patched.append(re.sub(rewrite_re[0], rewrite_re[1], bl))
+                    else:
+                        patched.append(bl)
+                result.extend(patched)
+
+                # Inject / merge env: block when needed
+                if extra_env:
+                    env_injected = False
+                    if i < len(lines):
+                        peek = lines[i].rstrip()
+                        if re.match(r"^" + re.escape(block_indent) + r"env:\s*$", peek):
+                            result.append(lines[i])
+                            i += 1
+                            env_body_indent = block_indent + "  "
+                            existing_keys: set[str] = set()
+                            env_lines: list[str] = []
+                            while i < len(lines):
+                                el = lines[i]
+                                if el.strip() == "" or el.startswith(env_body_indent):
+                                    m2 = re.match(r"^\s*(\w+)\s*:", el)
+                                    if m2:
+                                        existing_keys.add(m2.group(1))
+                                    env_lines.append(el)
+                                    i += 1
+                                else:
+                                    break
+                            for k, v in extra_env.items():
+                                if k not in existing_keys:
+                                    result.append(f'{env_body_indent}{k}: "{v}"\n')
+                            result.extend(env_lines)
+                            env_injected = True
+                    if not env_injected:
+                        result.append(f"{block_indent}env:\n")
+                        for k, v in extra_env.items():
+                            result.append(f'{block_indent}  {k}: "{v}"\n')
+                continue
+            else:
+                result.extend(block_lines)
+                continue
+
+        result.append(line)
+        i += 1
+
+    return "".join(result)
+
     raw_lang = scan.get("languages") or scan.get("language")
     langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
     if "python" not in langs:
@@ -950,7 +1126,7 @@ def generate_pipeline(
     result = _patch_docker_steps(_strip_markdown_fences(raw), has_compose=has_compose)
     if not docker_push_enabled:
         result = _strip_docker_push_steps(result)
-    result = _patch_python_test_steps(result, scan)
+    result = _patch_test_runner_steps(result, scan)
     return result
 
 
