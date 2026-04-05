@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:41:37 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:46:06 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -529,17 +529,15 @@ def _call_gemini(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
                 "  • Switch to the Groq provider (free, 14 400 req/day).\n"
                 "  • Upgrade to a paid Gemini plan at https://ai.google.dev/pricing"
             ) from exc
-        # Per-minute / per-project rate limit — wait and retry once
+        # Per-minute / per-project rate limit — raise immediately with retry time
         wait = min(delay if delay > 0 else 60, 120)
-        time.sleep(wait)
-        try:
-            return _attempt()
-        except ResourceExhausted as exc2:
-            delay2 = _parse_retry_delay(exc2)
-            raise EnvironmentError(
-                f"Gemini rate limit hit twice. "
-                f"Please wait {delay2 or 60}s and try again, or switch to the Groq provider."
-            ) from exc2
+        import datetime
+
+        retry_at = (datetime.datetime.now() + datetime.timedelta(seconds=wait)).strftime("%H:%M:%S")
+        raise EnvironmentError(
+            f"Gemini rate limit hit (429). "
+            f"Please wait until {retry_at} (~{wait}s) and try again, or switch to the Groq provider."
+        ) from exc
     except Exception as exc:
         # Surface any other Gemini error cleanly
         raise EnvironmentError(f"Gemini API error: {exc}") from exc
@@ -605,20 +603,12 @@ def _call_groq(prompt: str, api_key: str, max_tokens: int = 2048) -> str:
         import datetime
 
         retry_at = (datetime.datetime.now() + datetime.timedelta(seconds=wait)).strftime("%H:%M:%S")
-        time.sleep(wait)
-        try:
-            return _attempt()
-        except GroqRateLimitError as exc2:
-            delay2 = _parse_groq_retry_delay(exc2)
-            wait2 = delay2 or 60
-            retry_at2 = (datetime.datetime.now() + datetime.timedelta(seconds=wait2)).strftime("%H:%M:%S")
-            raise EnvironmentError(
-                f"Groq rate limit hit twice (429). "
-                f"Retried automatically at {retry_at} — still rate-limited.\n"
-                f"  • Wait until {retry_at2} and try again.\n"
-                f"  • Switch to the Gemini provider if Groq stays busy.\n"
-                f"  • Check your Groq usage at https://console.groq.com/usage"
-            ) from exc2
+        raise EnvironmentError(
+            f"Groq rate limit hit (429). "
+            f"Please wait until {retry_at} (~{wait}s) and try again.\n"
+            f"  • Switch to the Gemini provider if Groq stays busy.\n"
+            f"  • Check your Groq usage at https://console.groq.com/usage"
+        ) from exc
     except Exception as exc:
         raise EnvironmentError(f"Groq API error: {exc}") from exc
 
