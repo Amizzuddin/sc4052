@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 2:49:26 pm                           #
+#  Last Modified: Sunday April 5th 2026 8:34:02 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -710,7 +710,7 @@ app.layout = dbc.Container(
                                     ),
                                     dbc.FormText(
                                         "GitHub Actions only. Requires a token. "
-                                        "Monitors the run and pushes fixes (up to 2 attempts)."
+                                        "Monitors the run and pushes fixes (up to 5 attempts)."
                                     ),
                                 ],
                                 className="d-flex flex-column justify-content-center",
@@ -1088,6 +1088,9 @@ def generate_pipeline_cb(
     if wants_docker and "docker" not in (scan.get("deploy_targets") or []):
         scan = dict(scan)
         scan["deploy_targets"] = list(scan.get("deploy_targets") or []) + ["docker"]
+    if wants_compose and "docker-compose" not in (scan.get("deploy_targets") or []):
+        scan = dict(scan)
+        scan["deploy_targets"] = list(scan.get("deploy_targets") or []) + ["docker-compose"]
 
     # ── Generate Dockerfile / compose content ────────────────────────────────────────
     dockerfile_content: str | None = None
@@ -1107,11 +1110,19 @@ def generate_pipeline_cb(
     extras_parts = []
     if wants_docker:
         base_image = (docker_base_image or DEFAULT_DOCKER_BASE_IMAGE).strip()
-        extras_parts.append(
-            f"A Dockerfile is committed in the repo root (base image: {base_image}, single image "
-            "covering all selected languages). In the CI Docker build step use: "
-            "docker build -t <image>:$TAG . — do NOT reference per-language runtimes as base images."
-        )
+        if wants_compose:
+            extras_parts.append(
+                f"A Dockerfile and a docker-compose.yml are committed in the repo root "
+                f"(base image: {base_image}, single image covering all selected languages). "
+                "In the CI Docker build/push steps you MUST use docker compose commands — "
+                "use 'docker compose build' and 'docker compose push', never plain 'docker build' or 'docker push'."
+            )
+        else:
+            extras_parts.append(
+                f"A Dockerfile is committed in the repo root (base image: {base_image}, single image "
+                "covering all selected languages). In the CI Docker build step use: "
+                "docker build -t <image>:$TAG . — do NOT reference per-language runtimes as base images."
+            )
     if extra_requirements:
         extras_parts.append(extra_requirements)
     full_extras = "  ".join(extras_parts)
@@ -1235,7 +1246,7 @@ def generate_pipeline_cb(
                     "status": "watching",
                     "done": False,
                     "attempt": 1,
-                    "max_retries": 2,
+                    "max_retries": 5,
                     "progress": 5,
                 }
             _ci_cancel_flags[watch_id] = cancel_ev
@@ -1253,6 +1264,7 @@ def generate_pipeline_cb(
                     provider=provider,
                     api_key=resolved_api_key,
                     cancel_event=cancel_ev,
+                    max_retries=5,
                 ),
                 daemon=True,
             ).start()
@@ -1408,7 +1420,7 @@ def poll_ci_watch_status(n_intervals, watch_state):
     status = entry.get("status", "watching")
     progress = entry.get("progress", 0)
     attempt = entry.get("attempt", 1)
-    max_retries = entry.get("max_retries", 2)
+    max_retries = entry.get("max_retries", 5)
 
     color_map = {
         "passed": "success",

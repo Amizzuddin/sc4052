@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 1:46:51 pm                           #
+#  Last Modified: Sunday April 5th 2026 8:34:03 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -271,7 +271,7 @@ def _watch_ci_and_heal(
     scan: dict,
     provider: str,
     api_key: str,
-    max_retries: int = 2,
+    max_retries: int = 5,
     cancel_event: "threading.Event | None" = None,
 ) -> None:
     """
