@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 2:25:51 pm                           #
+#  Last Modified: Sunday April 5th 2026 8:09:10 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -287,11 +287,12 @@ RULES:
    Always run the lint step AFTER the install-dependencies step.
 10. If the repository contains multiple languages, generate a job/stage for each language
    so they can be built and tested independently.
-11. IMPORTANT — Docker builds: when `Docker build needed: true`, a single multi-language
+11. CRITICAL — Docker builds: when `Docker build needed: true`, a single multi-language
    Dockerfile is already committed to the repo root (it covers ALL selected languages in
    one image — do NOT create per-language images).
-   When `Docker Compose file: true`, ALWAYS prefer docker compose commands over plain
-   docker build.  Use these exact patterns:
+   When `Docker Compose file: true`, you MUST use docker compose commands.
+   NEVER use `docker build` or `docker push` directly when a compose file is present.
+   Use these EXACT patterns — deviation will break the pipeline:
 
    ── BUILD STEP (always runs) ──────────────────────────────────────────────
    IF Docker Compose file is true (guard for file existence):
@@ -586,6 +587,99 @@ def _strip_markdown_fences(text: str) -> str:
     return text.strip()
 
 
+def _patch_docker_steps(yaml_content: str, has_compose: bool) -> str:
+    """
+    Post-process the LLM-generated YAML to ensure docker compose commands are
+    used whenever a docker-compose file is present.
+
+    When ``has_compose`` is True this function replaces:
+      • ``TAG=...`` + ``docker build ...`` run bodies → ``docker compose build`` guard
+      • bare ``docker build ...`` run bodies          → ``docker compose build`` guard
+      • bare ``docker push ...``   run bodies         → ``docker compose push``
+
+    Login lines that pipe into ``--password-stdin`` are intentionally left alone.
+    """
+    if not has_compose:
+        return yaml_content
+
+    compose_build_guard = "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; " "then docker compose build; fi"
+
+    def _push_guard(bi: str) -> str:
+        """Return a docker compose push guard indented at *bi* (body indent)."""
+        return (
+            f"if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
+            f"{bi}  docker compose push\n"
+            f"{bi}else\n"
+            f"{bi}  echo 'docker-compose.yml not found \u2014 skipping push'\n"
+            f"{bi}fi"
+        )
+
+    lines = yaml_content.splitlines()
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.rstrip()
+
+        # ── Detect a `run: |` or `run: >` block start ────────────────────────
+        run_block_match = re.match(r"^(\s*)run:\s*[|>][-]?\s*$", stripped)
+        if run_block_match:
+            indent = run_block_match.group(1)
+            body_indent = indent + "  "
+            # Collect all lines belonging to this block
+            block_lines = [stripped]
+            i += 1
+            while i < len(lines):
+                next_line = lines[i]
+                # A line with strictly more base indentation belongs to this block,
+                # OR it is a blank/comment line inside the block.
+                if next_line.strip() == "" or next_line.startswith(body_indent):
+                    block_lines.append(next_line)
+                    i += 1
+                else:
+                    break
+            # Inspect block body for docker build / docker push
+            body_text = "\n".join(block_lines[1:])
+            if re.search(r"docker\s+build\b", body_text) and not re.search(r"--password-stdin", body_text):
+                result.append(f"{indent}run: |")
+                result.append(f"{body_indent}{compose_build_guard}")
+                continue  # block_lines consumed, i already advanced
+            if re.search(r"docker\s+push\b", body_text) and not re.search(r"--password-stdin", body_text):
+                result.append(f"{indent}run: |")
+                result.append(f"{body_indent}{_push_guard(body_indent)}")
+                continue
+            # No match — emit block unchanged
+            result.extend(block_lines)
+            continue
+
+        # ── Detect an inline `run: docker build ...` ─────────────────────────
+        inline_build = re.match(r"^(\s*run:\s+)(docker\s+build\b.*)$", stripped)
+        if inline_build and "--password-stdin" not in stripped:
+            indent_run = inline_build.group(1)
+            result.append(
+                f"{indent_run[: len(indent_run) - len(inline_build.group(1).lstrip())]}"
+                f"run: |\n{' ' * (len(indent_run) + 2)}{compose_build_guard}"
+            )
+            # Rewrite properly using leading whitespace
+            leading = len(stripped) - len(stripped.lstrip())
+            result[-1] = f"{' ' * leading}run: |\n{' ' * (leading + 2)}{compose_build_guard}"
+            i += 1
+            continue
+
+        # ── Detect an inline `run: docker push ...` ──────────────────────────
+        inline_push = re.match(r"^(\s*)run:\s+docker\s+push\b", stripped)
+        if inline_push and "--password-stdin" not in stripped:
+            leading = len(stripped) - len(stripped.lstrip())
+            result.append(f"{' ' * leading}run: |\n" f"{' ' * (leading + 2)}{_push_guard(' ' * (leading + 2))}")
+            i += 1
+            continue
+
+        result.append(line)
+        i += 1
+
+    return "\n".join(result)
+
+
 def generate_pipeline(
     scan: dict,
     platform: str = "github-actions",
@@ -611,7 +705,8 @@ def generate_pipeline(
 
     prompt = build_generation_prompt(scan, platform, extra_requirements, docker_push_enabled=docker_push_enabled)
     raw = _call_llm(prompt, provider=provider, api_key=api_key)
-    return _strip_markdown_fences(raw)
+    has_compose = "docker-compose" in scan.get("deploy_targets", [])
+    return _patch_docker_steps(_strip_markdown_fences(raw), has_compose=has_compose)
 
 
 def refine_pipeline(
