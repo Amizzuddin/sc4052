@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:27:14 pm                             #
+#  Last Modified: Sunday April 5th 2026 2:35:45 pm                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -329,7 +329,7 @@ def _watch_ci_and_heal(
 ) -> None:
     """
     Background thread: poll GitHub Actions, auto-fix failures, push fixes,
-    repeat up to max_retries times.  Respects cancel_event for clean shutdown.
+    and retry indefinitely until CI passes or cancel_event is set.
     """
     from generator import _call_llm, _strip_markdown_fences  # local import
 
@@ -380,6 +380,9 @@ def _watch_ci_and_heal(
     attempt = 0
     while True:
         attempt += 1
+        if _cancelled():
+            _finish("cancelled")
+            return
         with _ci_watch_lock:
             _ci_watch_results[watch_id]["attempt"] = attempt
 
@@ -492,6 +495,9 @@ def _watch_ci_and_heal(
             pass
 
         _log(f"🤖 Asking {provider} for a fix...")
+        if _cancelled():
+            _finish("cancelled")
+            return
         fix_prompt = _build_ci_fix_prompt(error_log, current_yaml, current_dockerfile, platform)
         try:
             raw_fix = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=3000)
@@ -540,6 +546,10 @@ def _watch_ci_and_heal(
             except Exception:
                 pass
         _run_precommit_on_files(clone_path, files_changed)
+
+        if _cancelled():
+            _finish("cancelled")
+            return
 
         try:
             # Rebase onto the remote before committing so the push is always
