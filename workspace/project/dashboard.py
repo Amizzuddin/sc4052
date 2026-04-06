@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:18:50 am                             #
+#  Last Modified: Monday April 6th 2026 7:29:35 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -898,6 +898,8 @@ app.layout = dbc.Container(
         dcc.Interval(id="ci-watch-interval", interval=8_000, n_intervals=0, disabled=True),
         # Polls every 10 s while Docker push toggle is on to check GitHub secrets
         dcc.Interval(id="secrets-poll-interval", interval=10_000, n_intervals=0, disabled=True),
+        # Holds: {"found": ["DOCKER_USERNAME", ...]} — written by check_docker_secrets
+        dcc.Store(id="secrets-status-store", storage_type="memory"),
     ],
     className="mt-3",
 )
@@ -1012,8 +1014,10 @@ def toggle_docker_push_notice(push_values):
     Input("api-key-input", "value"),
     Input("token-input", "value"),
     Input("auth-type", "value"),
+    Input("docker-push-toggle", "value"),
+    Input("secrets-status-store", "data"),
 )
-def toggle_generate_button(scan_state, api_key, token, auth_type):
+def toggle_generate_button(scan_state, api_key, token, auth_type, docker_push_values, secrets_status):
     """Disable the Generate button until the minimum requirements are met."""
     reasons: list[str] = []
     if not scan_state:
@@ -1025,6 +1029,12 @@ def toggle_generate_button(scan_state, api_key, token, auth_type):
             reasons.append("enter an AI provider API key")
     if auth_type == "https-token" and not (token or "").strip():
         reasons.append("enter a personal access token")
+    # When Docker push is enabled, both GitHub secrets must be present
+    if "push" in (docker_push_values or []):
+        found = (secrets_status or {}).get("found", [])
+        missing = [s for s in ["DOCKER_USERNAME", "DOCKER_TOKEN"] if s not in found]
+        if missing:
+            reasons.append(f"set GitHub secrets: {', '.join(missing)}")
     if reasons:
         return True, "To generate: " + ", ".join(reasons)
     return False, ""
@@ -1032,6 +1042,7 @@ def toggle_generate_button(scan_state, api_key, token, auth_type):
 
 @app.callback(
     Output("secrets-check-result", "children"),
+    Output("secrets-status-store", "data"),
     Input("secrets-poll-interval", "n_intervals"),
     State("docker-push-toggle", "value"),
     State("scan-state", "data"),
@@ -1064,10 +1075,10 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
     ghr = _parse_github_repo(repo_url) if repo_url else None
 
     if not ghr:
-        return [_status_row(n, "error", "(GitHub repo required)") for n in REQUIRED]
+        return [_status_row(n, "error", "(GitHub repo required)") for n in REQUIRED], {"found": []}
 
     if not (token or "").strip():
-        return [_status_row(n, "error", "(token required)") for n in REQUIRED]
+        return [_status_row(n, "error", "(token required)") for n in REQUIRED], {"found": []}
 
     owner, repo_name = ghr
     result = check_repo_secrets(owner, repo_name, token.strip(), REQUIRED)
@@ -1076,9 +1087,10 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
         note = result.get("error") or "token / permission error"
         # Truncate long error messages for the badge
         note = note[:60] + "…" if len(note) > 60 else note
-        return [_status_row(n, "error", f"({note})") for n in REQUIRED]
+        return [_status_row(n, "error", f"({note})") for n in REQUIRED], {"found": []}
 
-    return [_status_row(n, "ok" if n in result["found"] else "missing") for n in REQUIRED]
+    found = result["found"]
+    return [_status_row(n, "ok" if n in found else "missing") for n in REQUIRED], {"found": found}
 
 
 @app.callback(
