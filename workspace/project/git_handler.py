@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Saturday April 4th 2026 12:54:54 pm                          #
+#  Last Modified: Monday April 6th 2026 6:46:14 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -19,7 +19,7 @@ git_handler.py
 Git helpers for cicd-gen.
 
 Responsibilities:
-  - URL utilities: detecting SSH URLs, injecting tokens, masking credentials
+  - URL utilities: injecting tokens, masking credentials
   - Pre-commit config generation
   - Stub dependency file creation
   - Branch management (create, commit, push)
@@ -510,8 +510,6 @@ def _commit_on_branch(
 def _push_branch(repo: git.Repo, push_url: str, branch_name: str, auth_type: str) -> None:
     """Push *branch_name* to the remote."""
     env = dict(os.environ)
-    if auth_type == "ssh" or _is_ssh_url(push_url):
-        env["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
     origin = repo.remote("origin")
     origin.set_url(push_url)
     origin.push(refspec=f"{branch_name}:{branch_name}", env=env)

@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:49:54 pm                             #
+#  Last Modified: Monday April 6th 2026 6:46:14 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -18,14 +18,13 @@ dashboard.py
 ------------
 Dash web UI for cicd-gen — URL-based workflow.
 
-  1. User provides a remote repository URL (SSH or HTTPS).
+  1. User provides a remote repository URL (HTTPS).
   2. App clones it to a temporary directory and scans the tech stack.
   3. User configures the pipeline (language, docker, platform, branch name).
   4. App generates CI/CD YAML, commits it on a new feature branch, and
      optionally pushes it back — so the default branch stays untouched.
 
 Authentication model (no secrets stored on disk or in browser storage):
-  • SSH URL  (git@…)     → uses ~/.ssh keys already on the host; no UI input.
   • HTTPS public         → anonymous clone; no credentials needed.
   • HTTPS private        → masked token field (type="password", persistence=False);
                            token is passed as a callback State value and embedded
@@ -59,6 +58,7 @@ from ai_handler import (
     _sanitize_runner,
     _watch_ci_and_heal,
     check_repo_secrets,
+    snapshot_run_ids,
 )
 from dash import Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
@@ -68,7 +68,6 @@ from git_handler import (
     _cleanup,
     _commit_on_branch,
     _inject_token,
-    _is_ssh_url,
     _push_branch,
     _safe_url,
 )
@@ -332,18 +331,6 @@ app.layout = dbc.Container(
                             dbc.RadioItems(
                                 id="auth-type",
                                 options=[
-                                    {
-                                        "label": html.Span(
-                                            [
-                                                html.Strong("SSH  "),
-                                                html.Small(
-                                                    "(git@…) — uses your ~/.ssh key, no credentials enter the UI",
-                                                    className="text-muted",
-                                                ),
-                                            ]
-                                        ),
-                                        "value": "ssh",
-                                    },
                                     {
                                         "label": html.Span(
                                             [
@@ -1096,13 +1083,15 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     repo_url = repo_url.strip()
     clone_branch = (clone_branch or "").strip() or None
 
-    if not (_is_ssh_url(repo_url) or repo_url.startswith("http://") or repo_url.startswith("https://")):
+    if not (repo_url.startswith("http://") or repo_url.startswith("https://")):
         return (
-            _alert("URL must start with git@…, https://, or http://", "warning"),
+            _alert("URL must start with https:// or http://", "warning"),
             None,
             hidden,
             hidden,
             None,
+            no_update,
+            no_update,
         )
 
     # ── Clean up previous temp clone ─────────────────────────────────────────
@@ -1129,8 +1118,6 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     clone_path = tempfile.mkdtemp(prefix="cicd-gen-")
     try:
         clone_kwargs = {"env": dict(os.environ)}
-        if _is_ssh_url(repo_url):
-            clone_kwargs["env"]["GIT_SSH_COMMAND"] = "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
         if clone_branch:
             clone_kwargs["branch"] = clone_branch
 
@@ -1468,6 +1455,14 @@ def generate_pipeline_cb(
     except Exception as exc:
         return _alert(f"Git commit error: {exc}", "danger"), None, *_no_files, *_no_watch
 
+    # ── Snapshot existing Actions runs *before* pushing ───────────────────────
+    pre_push_ids: set[int] | None = None
+    wants_watch = "watch" in (watch_ci_values or [])
+    ghr = _parse_github_repo(repo_url)
+    if wants_push and wants_watch and platform == "github-actions" and ghr and token:
+        _ghr_owner, _ghr_repo = ghr
+        pre_push_ids = snapshot_run_ids(_ghr_owner, _ghr_repo, branch_name, token)
+
     # ── Push ──────────────────────────────────────────────────────────────────
     push_msg = ""
     if wants_push:
@@ -1490,46 +1485,44 @@ def generate_pipeline_cb(
     # ── Start CI watcher if conditions are met ─────────────────────────────────
     watch_state = None
     interval_disabled = True
-    wants_watch = "watch" in (watch_ci_values or [])
     push_succeeded = "pushed to remote" in push_msg
     can_watch = wants_watch and push_succeeded and platform == "github-actions" and "github.com" in repo_url and token
-    if can_watch:
-        ghr = _parse_github_repo(repo_url)
-        if ghr:
-            owner, repo_name = ghr
-            watch_id = str(uuid.uuid4())
-            cancel_ev = threading.Event()
-            with _ci_watch_lock:
-                _ci_watch_results[watch_id] = {
-                    "messages": ["CI watcher started — waiting for GitHub Actions run…"],
-                    "steps": [
-                        {"label": "Waiting for Actions run to appear", "status": "running"},
-                        {"label": "CI run in progress", "status": "pending"},
-                    ],
-                    "status": "watching",
-                    "done": False,
-                    "attempt": 1,
-                }
-            _ci_cancel_flags[watch_id] = cancel_ev
-            threading.Thread(
-                target=_watch_ci_and_heal,
-                kwargs=dict(
-                    watch_id=watch_id,
-                    owner=owner,
-                    repo_name=repo_name,
-                    branch_name=branch_name,
-                    token=token,
-                    clone_path=clone_path,
-                    platform=platform,
-                    scan=scan,
-                    provider=provider,
-                    api_key=resolved_api_key,
-                    cancel_event=cancel_ev,
-                ),
-                daemon=True,
-            ).start()
-            watch_state = {"watch_id": watch_id}
-            interval_disabled = False
+    if can_watch and ghr:
+        owner, repo_name = ghr
+        watch_id = str(uuid.uuid4())
+        cancel_ev = threading.Event()
+        with _ci_watch_lock:
+            _ci_watch_results[watch_id] = {
+                "messages": ["CI watcher started — waiting for GitHub Actions run…"],
+                "steps": [
+                    {"label": "Waiting for Actions run to appear", "status": "running"},
+                    {"label": "CI run in progress", "status": "pending"},
+                ],
+                "status": "watching",
+                "done": False,
+                "attempt": 1,
+            }
+        _ci_cancel_flags[watch_id] = cancel_ev
+        threading.Thread(
+            target=_watch_ci_and_heal,
+            kwargs=dict(
+                watch_id=watch_id,
+                owner=owner,
+                repo_name=repo_name,
+                branch_name=branch_name,
+                token=token,
+                clone_path=clone_path,
+                platform=platform,
+                scan=scan,
+                provider=provider,
+                api_key=resolved_api_key,
+                cancel_event=cancel_ev,
+                pre_push_run_ids=pre_push_ids,
+            ),
+            daemon=True,
+        ).start()
+        watch_state = {"watch_id": watch_id}
+        interval_disabled = False
 
     # ── Build output ──────────────────────────────────────────────────────────
     # Construct a GitHub compare / PR link when possible

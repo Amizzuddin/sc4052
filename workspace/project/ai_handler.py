@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:35:45 pm                             #
+#  Last Modified: Monday April 6th 2026 6:46:11 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -47,6 +47,20 @@ _ci_watch_results: dict[str, dict] = {}
 _ci_watch_lock = threading.Lock()
 # Cancel events keyed by watch_id — set() to request graceful shutdown
 _ci_cancel_flags: dict[str, threading.Event] = {}
+
+
+def snapshot_run_ids(owner: str, repo_name: str, branch_name: str, token: str) -> set[int]:
+    """Return the set of Actions run IDs currently on *branch_name*.
+
+    Call this **before** pushing a commit so the CI watcher can distinguish
+    pre-existing runs from the newly triggered one — even if the new run
+    completes (or fails) almost instantly.
+    """
+    result = _github_api(
+        f"/repos/{owner}/{repo_name}/actions/runs" f"?branch={urllib.parse.quote(branch_name)}&per_page=20",
+        token,
+    )
+    return {r["id"] for r in (result or {}).get("workflow_runs", [])}
 
 
 # ── GitHub URL parsing ────────────────────────────────────────────────────────
@@ -326,6 +340,7 @@ def _watch_ci_and_heal(
     api_key: str,
     max_retries: int = 10,
     cancel_event: "threading.Event | None" = None,
+    pre_push_run_ids: "set[int] | None" = None,
 ) -> None:
     """
     Background thread: poll GitHub Actions, auto-fix failures, push fixes,
@@ -362,18 +377,22 @@ def _watch_ci_and_heal(
     def _cancelled() -> bool:
         return _cancel.is_set()
 
-    # Pre-populate seen_run_ids with EVERY run that already exists on the
-    # branch right now, before the first commit is pushed.  This prevents
-    # the watcher from picking up a stale completed run (e.g. from a prior
-    # session) as if it were the freshly-triggered pipeline.
-    seen_run_ids: set = set()
-    _log("Snapshotting existing runs on branch before watching...")
-    _snapshot = _github_api(
-        f"/repos/{owner}/{repo_name}/actions/runs" f"?branch={urllib.parse.quote(branch_name)}&per_page=20",
-        token,
-    )
-    for _r in (_snapshot or {}).get("workflow_runs", []):
-        seen_run_ids.add(_r["id"])
+    # Use the pre-push snapshot of run IDs provided by the caller (taken
+    # BEFORE the commit was pushed) so that even an instantly-failing run
+    # is recognised as "new".  Fall back to a live snapshot only when the
+    # caller did not supply one (backwards compat / manual invocations).
+    if pre_push_run_ids is not None:
+        seen_run_ids: set = set(pre_push_run_ids)
+        _log(f"Using pre-push run snapshot ({len(seen_run_ids)} IDs)")
+    else:
+        seen_run_ids = set()
+        _log("Snapshotting existing runs on branch before watching...")
+        _snapshot = _github_api(
+            f"/repos/{owner}/{repo_name}/actions/runs" f"?branch={urllib.parse.quote(branch_name)}&per_page=20",
+            token,
+        )
+        for _r in (_snapshot or {}).get("workflow_runs", []):
+            seen_run_ids.add(_r["id"])
     if seen_run_ids:
         _log(f"  Pre-existing run IDs skipped: {sorted(seen_run_ids)}")
 
