@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 6:46:14 am                             #
+#  Last Modified: Monday April 6th 2026 7:18:50 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1006,6 +1006,31 @@ def toggle_docker_push_notice(push_values):
 
 
 @app.callback(
+    Output("generate-btn", "disabled"),
+    Output("generate-btn", "title"),
+    Input("scan-state", "data"),
+    Input("api-key-input", "value"),
+    Input("token-input", "value"),
+    Input("auth-type", "value"),
+)
+def toggle_generate_button(scan_state, api_key, token, auth_type):
+    """Disable the Generate button until the minimum requirements are met."""
+    reasons: list[str] = []
+    if not scan_state:
+        reasons.append("scan the repository first")
+    if not (api_key or "").strip():
+        # Check env fallback
+        env_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GROQ_API_KEY") or ""
+        if not env_key:
+            reasons.append("enter an AI provider API key")
+    if auth_type == "https-token" and not (token or "").strip():
+        reasons.append("enter a personal access token")
+    if reasons:
+        return True, "To generate: " + ", ".join(reasons)
+    return False, ""
+
+
+@app.callback(
     Output("secrets-check-result", "children"),
     Input("secrets-poll-interval", "n_intervals"),
     State("docker-push-toggle", "value"),
@@ -1545,71 +1570,9 @@ def generate_pipeline_cb(
     tree_options = _files_to_tree_options(files_state["files"])
     default_file = files_state.get("default_file") or (tree_options[0]["value"] if tree_options else None)
 
-    # Docker push notice — shown only when the user enabled Docker push
-    docker_push_notice = (
-        dbc.Alert(
-            [
-                html.Strong("🔐 Docker image push included — GitHub Secrets required"),
-                html.Hr(className="my-2"),
-                html.P(
-                    [
-                        "The pipeline logs in to Docker Hub and pushes only when ",
-                        html.Strong("both secrets are configured"),
-                        " on your repository. The push step is skipped automatically "
-                        "if either secret is absent — your token is never written to the YAML.",
-                    ],
-                    className="mb-2 small",
-                ),
-                html.Strong("Add these two secrets to your repo:", className="small"),
-                html.Ol(
-                    [
-                        html.Li(
-                            [
-                                "Repo → ",
-                                html.Strong("Settings"),
-                                " → ",
-                                html.Strong("Secrets and variables"),
-                                " → ",
-                                html.Strong("Actions"),
-                                " → ",
-                                html.Strong("New repository secret"),
-                            ]
-                        ),
-                        html.Li(
-                            [
-                                html.Code("DOCKER_USERNAME"),
-                                " — your Docker Hub username",
-                            ]
-                        ),
-                        html.Li(
-                            [
-                                html.Code("DOCKER_TOKEN"),
-                                " — a Docker Hub ",
-                                html.A(
-                                    "Access Token",
-                                    href="https://hub.docker.com/settings/security",
-                                    target="_blank",
-                                ),
-                                " (not your account password)",
-                            ]
-                        ),
-                        html.Li("Re-run the workflow — the push step will now execute."),
-                    ],
-                    className="mb-0 ps-3 small",
-                ),
-            ],
-            color="info",
-            className="mt-2 mb-3",
-        )
-        if wants_docker_push
-        else None
-    )
-
-    preview = docker_push_notice  # file browser is in its own #file-browser div
-
     return (
         status,
-        preview,
+        None,
         files_state,
         {"display": "block"},
         tree_options,

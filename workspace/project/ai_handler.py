@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 6:46:11 am                             #
+#  Last Modified: Monday April 6th 2026 7:11:52 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -440,10 +440,116 @@ def _watch_ci_and_heal(
             _cancel.wait(12)
 
         if not run_id:
-            _set_step(wait_run_idx, "failed", "No Actions run found")
-            _finish("error")
-            _log("⚠ No Actions run found for this branch.")
-            return
+            _set_step(wait_run_idx, "failed", "No Actions run found — attempting fix")
+            _log("⚠ No Actions run found for this branch. The workflow YAML may be invalid.")
+            _log("  Fetching current YAML and asking LLM to fix it...")
+
+            # ── Self-heal: the workflow file itself may be broken ────────────
+            current_yaml = ""
+            current_dockerfile = None
+            try:
+                for pat in ("ci.yml", "*.yml"):
+                    yp = next(Path(clone_path).rglob(pat), None)
+                    if yp:
+                        current_yaml = yp.read_text()
+                        break
+                df_p = Path(clone_path) / "Dockerfile"
+                if df_p.exists():
+                    current_dockerfile = df_p.read_text()
+            except Exception:
+                pass
+
+            if not current_yaml:
+                _log("⚠ Could not locate a workflow YAML to fix.")
+                _cancel.wait(15)
+                continue
+
+            error_log = (
+                "GitHub Actions did NOT create a workflow run at all. "
+                "This usually means the YAML file has a syntax error that "
+                "prevents GitHub from parsing it (e.g. invalid expression "
+                "like 'secrets.X != ...' outside of a valid context, or a "
+                "malformed 'on:' trigger). Fix the YAML so GitHub can parse it."
+            )
+
+            llm_idx = _add_step(f"Fix attempt {attempt}: fixing invalid YAML", "running")
+            _log(f"🤖 Asking {provider} for a fix (no-run scenario)...")
+            if _cancelled():
+                _finish("cancelled")
+                return
+
+            fix_prompt = _build_ci_fix_prompt(error_log, current_yaml, current_dockerfile, platform)
+            try:
+                nr_raw = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=3000)
+                nr_raw = _strip_markdown_fences(nr_raw)
+                nr_fix = json.loads(nr_raw)
+            except Exception as e:
+                _set_step(llm_idx, "failed")
+                _log(f"⚠ Could not parse LLM fix: {e}. Retrying next attempt...")
+                _cancel.wait(15)
+                continue
+
+            _set_step(llm_idx, "passed")
+            push_idx = _add_step(f"Fix attempt {attempt}: pushing commit", "running")
+            repo_obj = git.Repo(clone_path)
+            nr_changed: list = []
+            try:
+                if nr_fix.get("ci_yaml"):
+                    raw_yaml = _sanitize_expressions(nr_fix["ci_yaml"], platform)
+                    raw_yaml = _sanitize_runner(raw_yaml, platform)
+                    yo = write_config(raw_yaml, clone_path, platform)
+                    nr_changed.append(str(yo.relative_to(clone_path)))
+                if nr_fix.get("dockerfile"):
+                    df_p = Path(clone_path) / "Dockerfile"
+                    df_p.write_text(nr_fix["dockerfile"])
+                    nr_changed.append("Dockerfile")
+            except Exception as e:
+                _set_step(push_idx, "failed")
+                _log(f"⚠ Could not write fix files: {e}. Retrying...")
+                _cancel.wait(15)
+                continue
+
+            if not nr_changed:
+                _set_step(push_idx, "skipped")
+                _log("⚠ LLM returned no file changes. Retrying...")
+                _cancel.wait(15)
+                continue
+
+            for rel_path in nr_changed:
+                try:
+                    _ensure_trailing_newline(Path(clone_path) / rel_path)
+                except Exception:
+                    pass
+            _run_precommit_on_files(clone_path, nr_changed)
+
+            if _cancelled():
+                _finish("cancelled")
+                return
+
+            try:
+                origin = repo_obj.remote("origin")
+                origin.set_url(f"https://{token}@github.com/{owner}/{repo_name}.git")
+                try:
+                    repo_obj.git.fetch("origin", branch_name)
+                    repo_obj.git.rebase(f"origin/{branch_name}")
+                except Exception:
+                    pass
+                _backups = Path(clone_path) / ".cicd-gen-backups"
+                if _backups.exists():
+                    import shutil as _shutil
+
+                    _shutil.rmtree(_backups, ignore_errors=True)
+                repo_obj.git.add(".")
+                repo_obj.index.commit(f"ci(fix): auto-fix attempt {attempt} (no-run) via cicd-gen")
+                origin.push(refspec=f"{branch_name}:{branch_name}")
+                _set_step(push_idx, "passed")
+                _log(f"🚀 Fix pushed ({', '.join(nr_changed)}). Waiting for new run...")
+            except Exception as e:
+                _set_step(push_idx, "failed")
+                _log(f"⚠ Push failed: {e}. Retrying...")
+
+            _cancel.wait(15)
+            continue
 
         _set_step(wait_run_idx, "passed")
         _set_step(run_progress_idx, "running")
@@ -581,6 +687,12 @@ def _watch_ci_and_heal(
                 repo_obj.git.rebase(f"origin/{branch_name}")
             except Exception:
                 pass  # ignore if branch doesn't exist on remote yet
+            # Remove leftover backup dir so it is never committed
+            _backups = Path(clone_path) / ".cicd-gen-backups"
+            if _backups.exists():
+                import shutil as _shutil
+
+                _shutil.rmtree(_backups, ignore_errors=True)
             repo_obj.git.add(".")
             repo_obj.index.commit(f"ci(fix): auto-fix attempt {attempt} via cicd-gen")
             origin.push(refspec=f"{branch_name}:{branch_name}")
