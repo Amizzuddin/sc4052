@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Sunday April 5th 2026 2:49:51 pm                             #
+#  Last Modified: Monday April 6th 2026 7:46:17 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -341,15 +341,20 @@ RULES:
      The push MUST be conditional on the DOCKER_TOKEN secret being present.
      NEVER echo, print, log, or expose the token value anywhere.
 
-   For GitHub Actions (push enabled) — use a step-level `if:` condition:
+   For GitHub Actions (push enabled) — map secrets to env vars and use a
+   shell-level guard (NEVER use `secrets.*` in a step `if:` — it causes
+   "Unrecognized named-value" errors):
 
-     - name: Docker login
-       if: ${{{{ secrets.DOCKER_TOKEN != '' }}}}
-       run: echo "${{{{ secrets.DOCKER_TOKEN }}}}" | docker login -u "${{{{ secrets.DOCKER_USERNAME }}}}" --password-stdin
-
-     - name: Docker push
-       if: ${{{{ secrets.DOCKER_TOKEN != '' }}}}
+     - name: Docker login & push
+       env:
+         DOCKER_TOKEN: ${{{{ secrets.DOCKER_TOKEN }}}}
+         DOCKER_USERNAME: ${{{{ secrets.DOCKER_USERNAME }}}}
        run: |
+         if [ -z "$DOCKER_TOKEN" ]; then
+           echo "DOCKER_TOKEN not set — skipping Docker push"
+           exit 0
+         fi
+         echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
          if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
            docker compose push
          else
@@ -429,8 +434,16 @@ RULES:
    pipe or a credentials-binding block. Forbidden patterns (never output these):
      echo "${{{{secrets.DOCKER_TOKEN}}}}"   # only acceptable inside | docker login --password-stdin
      run: echo "${{{{secrets.DOCKER_TOKEN}}}}"   # WRONG if not piped to docker login
-   The login command MUST take this exact form and nothing else:
-     echo "${{{{secrets.DOCKER_TOKEN}}}}" | docker login -u "${{{{secrets.DOCKER_USERNAME}}}}" --password-stdin
+   The login + push step MUST map secrets to env vars and use shell guards:
+     env:
+       DOCKER_TOKEN: ${{{{ secrets.DOCKER_TOKEN }}}}
+       DOCKER_USERNAME: ${{{{ secrets.DOCKER_USERNAME }}}}
+     run: |
+       echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+16. CRITICAL — NEVER use `secrets.*` in a step-level or job-level `if:` expression.
+   GitHub Actions raises "Unrecognized named-value: 'secrets'" for this usage.
+   WRONG:  if: ${{{{ secrets.DOCKER_TOKEN != '' }}}}
+   Instead, map secrets to env vars and test with `[ -z "$VAR" ]` in `run:`.
 Generate the pipeline configuration now:"""
 
     return prompt

@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:11:52 am                             #
+#  Last Modified: Monday April 6th 2026 7:46:15 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -315,6 +315,9 @@ Return ONLY a JSON object with these keys (omit a key if that file does not need
 CRITICAL RULES for the fixed YAML:
 - GitHub Actions expressions MUST use exactly two braces with NO spaces: ${{{{ github.sha }}}}
   NEVER write ${{ {{github.sha}} }} or ${{ github.sha }} or ${{ "{{" }}github.sha{{ "}}" }}
+- NEVER use `secrets.*` in a step-level or job-level `if:` expression — GitHub Actions raises
+  "Unrecognized named-value: 'secrets'" for this usage. Instead, map secrets to `env:` vars
+  and test them with shell guards like `if [ -z "$VAR" ]; then ... fi` inside `run:`.
 - Every step MUST have either `run:` or `uses:` — never a name-only step.
 - Runner label MUST be `ubuntu-latest` (or `ubuntu-22.04`/`ubuntu-24.04`).
   NEVER use `ubuntu-20.04`, `ubuntu-18.04`, or any other deprecated image — they are
