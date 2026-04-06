@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 6:46:14 am                             #
+#  Last Modified: Monday April 6th 2026 7:09:41 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -483,6 +483,11 @@ def _commit_on_branch(
     # Run pre-commit locally to auto-fix end-of-file, trailing whitespace, etc.
     # This prevents the GitHub Actions run from failing on trivial formatting issues.
     _run_precommit_local(clone_path)
+
+    # Remove any leftover .cicd-gen-backups directory so it is never committed.
+    _backups_dir = Path(clone_path) / ".cicd-gen-backups"
+    if _backups_dir.exists():
+        shutil.rmtree(_backups_dir, ignore_errors=True)
 
     # Stage EVERYTHING (including any files auto-fixed by pre-commit hooks)
     if is_empty:
