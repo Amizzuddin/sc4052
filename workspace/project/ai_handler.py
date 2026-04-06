@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:46:15 am                             #
+#  Last Modified: Monday April 6th 2026 7:55:10 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -211,11 +211,19 @@ def check_repo_secrets(
 
 
 def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
-    """Extract the most relevant lines from a GitHub Actions log zip."""
-    lines_out: list[str] = []
+    """Extract the most relevant lines from a GitHub Actions log zip.
+
+    Strategy: collect the *last* 120 lines of every log file first (these
+    contain the real failure output), then append lines mentioning actionable
+    error keywords.  Docker-build noise (package install logs) is filtered
+    out so the LLM sees the actual failure reason.
+    """
+    tail_lines: list[str] = []
+    error_lines: list[str] = []
+    # Docker build output lines that mention "error" in package names but aren't real errors
+    _NOISE = re.compile(r"#\d+\s+\d+\.\d+\s+(Selecting|Preparing|Unpacking|Setting up|Get:\d+)", re.I)
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            # Sort jobs so we get consistent ordering
             for name in sorted(zf.namelist()):
                 if not name.endswith(".txt"):
                     continue
@@ -223,15 +231,23 @@ def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
                     text = zf.read(name).decode("utf-8", errors="replace")
                 except Exception:
                     continue
-                # Keep lines mentioning errors, failures, or the last 60 lines
-                error_lines = [ln for ln in text.splitlines() if re.search(r"error|fail|cannot|not found", ln, re.I)]
-                tail_lines = text.splitlines()[-60:]
-                for ln in error_lines + tail_lines:
-                    if ln not in lines_out:
-                        lines_out.append(ln)
+                all_lines = text.splitlines()
+                # Last 120 lines — most likely to contain the actual failure
+                for ln in all_lines[-120:]:
+                    if ln not in tail_lines:
+                        tail_lines.append(ln)
+                # Lines matching real error keywords (skip Docker build noise)
+                for ln in all_lines:
+                    if _NOISE.search(ln):
+                        continue
+                    if re.search(r"error|fail|denied|cannot|not found|exit code", ln, re.I):
+                        if ln not in error_lines and ln not in tail_lines:
+                            error_lines.append(ln)
     except Exception as e:
         return f"(Could not parse log zip: {e})"
-    joined = "\n".join(lines_out)
+    # Put tail first (most important), then supplemental error lines
+    combined = tail_lines + error_lines
+    joined = "\n".join(combined)
     return joined[-max_chars:] if len(joined) > max_chars else joined
 
 
@@ -318,6 +334,13 @@ CRITICAL RULES for the fixed YAML:
 - NEVER use `secrets.*` in a step-level or job-level `if:` expression — GitHub Actions raises
   "Unrecognized named-value: 'secrets'" for this usage. Instead, map secrets to `env:` vars
   and test them with shell guards like `if [ -z "$VAR" ]; then ... fi` inside `run:`.
+- NEVER use `docker compose push` — compose image names are local and lack a Docker Hub
+  username prefix, causing "denied: requested access to the resource is denied". Instead,
+  re-tag each compose image with the Docker Hub username and push individually:
+    for img in $(docker compose config --images 2>/dev/null); do
+      docker tag "$img" "$DOCKER_USERNAME/$img"
+      docker push "$DOCKER_USERNAME/$img"
+    done
 - Every step MUST have either `run:` or `uses:` — never a name-only step.
 - Runner label MUST be `ubuntu-latest` (or `ubuntu-22.04`/`ubuntu-24.04`).
   NEVER use `ubuntu-20.04`, `ubuntu-18.04`, or any other deprecated image — they are
