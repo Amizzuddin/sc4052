@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:54:09 am                             #
+#  Last Modified: Monday April 6th 2026 7:57:17 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -354,17 +354,17 @@ RULES:
            echo "DOCKER_TOKEN not set — skipping Docker push"
            exit 0
          fi
+         REPO_NAME="${{{{github.event.repository.name}}}}"
          echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
          if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
-           # Re-tag compose-built images so they include the Docker Hub username
+           # Re-tag the compose-built image as DOCKER_USERNAME/REPO_NAME
            for img in $(docker compose config --images 2>/dev/null); do
-             hub_tag="$DOCKER_USERNAME/$img"
-             docker tag "$img" "$hub_tag"
-             docker push "$hub_tag"
+             docker tag "$img" "$DOCKER_USERNAME/$REPO_NAME:latest"
            done
+           docker push "$DOCKER_USERNAME/$REPO_NAME:latest"
          else
-           docker tag ${{{{github.repository}}}}:${{{{github.sha}}}} "$DOCKER_USERNAME/${{{{github.repository}}}}:${{{{github.sha}}}}"
-           docker push "$DOCKER_USERNAME/${{{{github.repository}}}}:${{{{github.sha}}}}"
+           docker tag ${{{{github.repository}}}}:${{{{github.sha}}}} "$DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}"
+           docker push "$DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}"
          fi
 
    For GitLab CI (push enabled) — wrap login and push in a bash guard:
@@ -372,15 +372,15 @@ RULES:
        - |
          if [ -n "$DOCKER_TOKEN" ]; then
            echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+           REPO_NAME=$(basename "$CI_PROJECT_PATH")
            if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
              for img in $(docker compose config --images 2>/dev/null); do
-               hub_tag="$DOCKER_USERNAME/$img"
-               docker tag "$img" "$hub_tag"
-               docker push "$hub_tag"
+               docker tag "$img" "$DOCKER_USERNAME/$REPO_NAME:latest"
              done
+             docker push "$DOCKER_USERNAME/$REPO_NAME:latest"
            else
-             docker tag $CI_PROJECT_PATH:$CI_COMMIT_SHA "$DOCKER_USERNAME/$CI_PROJECT_PATH:$CI_COMMIT_SHA"
-             docker push "$DOCKER_USERNAME/$CI_PROJECT_PATH:$CI_COMMIT_SHA"
+             docker tag $CI_PROJECT_PATH:$CI_COMMIT_SHA "$DOCKER_USERNAME/$REPO_NAME:$CI_COMMIT_SHA"
+             docker push "$DOCKER_USERNAME/$REPO_NAME:$CI_COMMIT_SHA"
            fi
          else
            echo "DOCKER_TOKEN not set — skipping push"
@@ -390,15 +390,15 @@ RULES:
      sh '''
        if [ -n "${{DOCKER_TOKEN}}" ]; then
          echo "${{DOCKER_TOKEN}}" | docker login -u "${{DOCKER_USERNAME}}" --password-stdin
+         REPO_NAME=$(basename "${{env.JOB_NAME}}")
          if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
            for img in $(docker compose config --images 2>/dev/null); do
-             hub_tag="${{DOCKER_USERNAME}}/$img"
-             docker tag "$img" "$hub_tag"
-             docker push "$hub_tag"
+             docker tag "$img" "${{DOCKER_USERNAME}}/$REPO_NAME:latest"
            done
+           docker push "${{DOCKER_USERNAME}}/$REPO_NAME:latest"
          else
-           docker tag ${{env.JOB_NAME}}:${{env.GIT_COMMIT}} "${{DOCKER_USERNAME}}/${{env.JOB_NAME}}:${{env.GIT_COMMIT}}"
-           docker push "${{DOCKER_USERNAME}}/${{env.JOB_NAME}}:${{env.GIT_COMMIT}}"
+           docker tag ${{env.JOB_NAME}}:${{env.GIT_COMMIT}} "${{DOCKER_USERNAME}}/$REPO_NAME:${{env.GIT_COMMIT}}"
+           docker push "${{DOCKER_USERNAME}}/$REPO_NAME:${{env.GIT_COMMIT}}"
          fi
        else
          echo "DOCKER_TOKEN not set — skipping push"
