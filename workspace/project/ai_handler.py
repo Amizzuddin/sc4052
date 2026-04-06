@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:57:15 am                             #
+#  Last Modified: Monday April 6th 2026 8:06:40 am                             #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -210,6 +210,18 @@ def check_repo_secrets(
     return {"found": found, "missing": missing, "error": None, "can_check": True}
 
 
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Return True if the exception is an LLM rate-limit / quota error."""
+    msg = str(exc).lower()
+    return "rate limit" in msg or "429" in msg or "quota" in msg
+
+
+def _extract_rate_limit_wait(exc: Exception) -> int:
+    """Try to parse a wait-time (seconds) from a rate-limit exception message."""
+    m = re.search(r"~(\d+)s", str(exc))
+    return int(m.group(1)) if m else 60
+
+
 def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
     """Extract the most relevant lines from a GitHub Actions log zip.
 
@@ -222,6 +234,8 @@ def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
     error_lines: list[str] = []
     # Docker build output lines that mention "error" in package names but aren't real errors
     _NOISE = re.compile(r"#\d+\s+\d+\.\d+\s+(Selecting|Preparing|Unpacking|Setting up|Get:\d+)", re.I)
+    # pip freeze / package-list lines (e.g. "requests==2.31.0") — not useful for debugging
+    _PKG_LIST = re.compile(r"^\S+==\S+$")
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             for name in sorted(zf.namelist()):
@@ -234,6 +248,10 @@ def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
                 all_lines = text.splitlines()
                 # Last 120 lines — most likely to contain the actual failure
                 for ln in all_lines[-120:]:
+                    # Strip timestamp prefix for the noise check
+                    stripped = re.sub(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*", "", ln).strip()
+                    if _PKG_LIST.match(stripped) or _NOISE.search(ln):
+                        continue
                     if ln not in tail_lines:
                         tail_lines.append(ln)
                 # Lines matching real error keywords (skip Docker build noise)
@@ -513,6 +531,14 @@ def _watch_ci_and_heal(
                 nr_fix = json.loads(nr_raw)
             except Exception as e:
                 _set_step(llm_idx, "failed")
+                if _is_rate_limit_error(e):
+                    wait = _extract_rate_limit_wait(e)
+                    _log(f"\u23f3 Rate limit hit — waiting {wait}s before retrying...")
+                    _cancel.wait(wait)
+                    if _cancelled():
+                        _finish("cancelled")
+                        return
+                    continue
                 _log(f"⚠ Could not parse LLM fix: {e}. Retrying next attempt...")
                 _cancel.wait(15)
                 continue
@@ -658,9 +684,17 @@ def _watch_ci_and_heal(
             fix_data: dict = json.loads(raw_fix)
         except Exception as e:
             _set_step(llm_idx, "failed")
-            _log(f"⚠ Could not parse LLM fix: {e}. Stopping.")
-            _finish("error")
-            return
+            if _is_rate_limit_error(e):
+                wait = _extract_rate_limit_wait(e)
+                _log(f"\u23f3 Rate limit hit — waiting {wait}s before retrying...")
+                _cancel.wait(wait)
+                if _cancelled():
+                    _finish("cancelled")
+                    return
+                continue
+            _log(f"\u26a0 Could not parse LLM fix: {e}. Retrying next attempt...")
+            _cancel.wait(15)
+            continue
 
         # Apply fixes & push
         _set_step(llm_idx, "passed")
