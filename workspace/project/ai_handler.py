@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 8:06:40 am                             #
+#  Last Modified: Tuesday April 7th 2026 1:17:28 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -352,15 +352,13 @@ CRITICAL RULES for the fixed YAML:
 - NEVER use `secrets.*` in a step-level or job-level `if:` expression — GitHub Actions raises
   "Unrecognized named-value: 'secrets'" for this usage. Instead, map secrets to `env:` vars
   and test them with shell guards like `if [ -z "$VAR" ]; then ... fi` inside `run:`.
-- NEVER use `docker compose push` — compose image names are local and lack a Docker Hub
-  username prefix, causing "denied: requested access to the resource is denied". Instead,
-  re-tag each compose image as DOCKER_USERNAME/REPO_NAME and push:
+- NEVER use `docker build` or `docker push` directly when a compose file is present.
+  When a docker-compose.yml exists, use `sed` to update the image name, then `docker compose push`:
     REPO_NAME="${{{{github.event.repository.name}}}}"
-    for img in $(docker compose config --images 2>/dev/null); do
-      docker tag "$img" "$DOCKER_USERNAME/$REPO_NAME:latest"
-    done
-    docker push "$DOCKER_USERNAME/$REPO_NAME:latest"
-  For non-compose builds, tag as: $DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}
+    sed -i "s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|" docker-compose.yml docker-compose.yaml 2>/dev/null || true
+    docker compose build
+    docker compose push
+  For non-compose builds, build and push as: $DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}
 - Every step MUST have either `run:` or `uses:` — never a name-only step.
 - Runner label MUST be `ubuntu-latest` (or `ubuntu-22.04`/`ubuntu-24.04`).
   NEVER use `ubuntu-20.04`, `ubuntu-18.04`, or any other deprecated image — they are

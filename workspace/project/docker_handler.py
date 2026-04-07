@@ -140,21 +140,6 @@ def _generate_dockerfile(langs: list[str], base_image: str = "ubuntu:22.04") -> 
 
 def _generate_compose(image_name: str, langs: list[str]) -> str:
     """Generate a docker-compose.yml for the project."""
-    if "python" in langs:
-        cmd = "python3 app.py"
-    elif "node" in langs or "typescript" in langs:
-        cmd = "node index.js"
-    elif "go" in langs:
-        cmd = "./app"
-    elif "java" in langs or "kotlin" in langs:
-        cmd = "java -jar app.jar"
-    elif "php" in langs:
-        cmd = "php -S 0.0.0.0:8080 -t public"
-    elif "dotnet" in langs:
-        cmd = "dotnet run"
-    else:
-        cmd = "bash"
-
     safe_name = re.sub(r"[^a-z0-9_-]", "-", image_name.lower()) if image_name else "app"
     return (
         'version: "3.8"\n'
@@ -174,5 +159,4 @@ def _generate_compose(image_name: str, langs: list[str]) -> str:
         "    # Uncomment to mount source for live-reload:\n"
         "    # volumes:\n"
         "    #   - .:/app\n"
-        f"    command: {cmd}\n"
     )

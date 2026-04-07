@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:57:17 am                             #
+#  Last Modified: Tuesday April 7th 2026 1:17:04 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -357,13 +357,12 @@ RULES:
          REPO_NAME="${{{{github.event.repository.name}}}}"
          echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
          if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
-           # Re-tag the compose-built image as DOCKER_USERNAME/REPO_NAME
-           for img in $(docker compose config --images 2>/dev/null); do
-             docker tag "$img" "$DOCKER_USERNAME/$REPO_NAME:latest"
-           done
-           docker push "$DOCKER_USERNAME/$REPO_NAME:latest"
+           # Update compose image to DOCKER_USERNAME/REPO_NAME and push
+           sed -i "s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|" docker-compose.yml docker-compose.yaml 2>/dev/null || true
+           docker compose build
+           docker compose push
          else
-           docker tag ${{{{github.repository}}}}:${{{{github.sha}}}} "$DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}"
+           docker build -t "$DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}" .
            docker push "$DOCKER_USERNAME/$REPO_NAME:${{{{github.sha}}}}"
          fi
 
@@ -374,12 +373,11 @@ RULES:
            echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
            REPO_NAME=$(basename "$CI_PROJECT_PATH")
            if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
-             for img in $(docker compose config --images 2>/dev/null); do
-               docker tag "$img" "$DOCKER_USERNAME/$REPO_NAME:latest"
-             done
-             docker push "$DOCKER_USERNAME/$REPO_NAME:latest"
+             sed -i "s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|" docker-compose.yml docker-compose.yaml 2>/dev/null || true
+             docker compose build
+             docker compose push
            else
-             docker tag $CI_PROJECT_PATH:$CI_COMMIT_SHA "$DOCKER_USERNAME/$REPO_NAME:$CI_COMMIT_SHA"
+             docker build -t "$DOCKER_USERNAME/$REPO_NAME:$CI_COMMIT_SHA" .
              docker push "$DOCKER_USERNAME/$REPO_NAME:$CI_COMMIT_SHA"
            fi
          else
@@ -392,12 +390,11 @@ RULES:
          echo "${{DOCKER_TOKEN}}" | docker login -u "${{DOCKER_USERNAME}}" --password-stdin
          REPO_NAME=$(basename "${{env.JOB_NAME}}")
          if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then
-           for img in $(docker compose config --images 2>/dev/null); do
-             docker tag "$img" "${{DOCKER_USERNAME}}/$REPO_NAME:latest"
-           done
-           docker push "${{DOCKER_USERNAME}}/$REPO_NAME:latest"
+           sed -i "s|image:.*|image: ${{DOCKER_USERNAME}}/$REPO_NAME:latest|" docker-compose.yml docker-compose.yaml 2>/dev/null || true
+           docker compose build
+           docker compose push
          else
-           docker tag ${{env.JOB_NAME}}:${{env.GIT_COMMIT}} "${{DOCKER_USERNAME}}/$REPO_NAME:${{env.GIT_COMMIT}}"
+           docker build -t "${{DOCKER_USERNAME}}/$REPO_NAME:${{env.GIT_COMMIT}}" .
            docker push "${{DOCKER_USERNAME}}/$REPO_NAME:${{env.GIT_COMMIT}}"
          fi
        else
