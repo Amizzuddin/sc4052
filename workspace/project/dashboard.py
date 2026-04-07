@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 7:05:14 am                            #
+#  Last Modified: Tuesday April 7th 2026 7:14:26 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -892,6 +892,10 @@ app.layout = dbc.Container(
         dcc.Store(id="scan-state", storage_type="memory"),
         # Holds: {watch_id} for CI polling
         dcc.Store(id="ci-watch-state", storage_type="memory"),
+        # Holds full CI log messages for download
+        dcc.Store(id="ci-log-store", storage_type="memory"),
+        # Download component for CI logs
+        dcc.Download(id="download-log"),
         # Polls every 8 s while CI watch is active
         dcc.Interval(id="ci-watch-interval", interval=8_000, n_intervals=0, disabled=True),
         # Polls every 10 s while Docker push toggle is on to check GitHub secrets
@@ -1596,6 +1600,7 @@ def generate_pipeline_cb(
     Output("ci-watch-state", "data"),
     Output("cancel-btn-row", "style"),
     Output("generated-files-state", "data", allow_duplicate=True),
+    Output("ci-log-store", "data"),
     Input("ci-watch-interval", "n_intervals"),
     State("ci-watch-state", "data"),
     State("generated-files-state", "data"),
@@ -1606,13 +1611,13 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
     _hidden = {"display": "none"}
     _visible = {"display": "inline-block", "marginTop": "8px"}
     if not watch_state or not watch_state.get("watch_id"):
-        return None, True, watch_state, _hidden, no_update
+        return None, True, watch_state, _hidden, no_update, no_update
 
     watch_id = watch_state["watch_id"]
     with _ci_watch_lock:
         entry = dict(_ci_watch_results.get(watch_id, {}))
     if not entry:
-        return None, True, watch_state, _hidden, no_update
+        return None, True, watch_state, _hidden, no_update, no_update
 
     messages = entry.get("messages", [])
     steps = entry.get("steps", [])
@@ -1685,11 +1690,25 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
     # ── Log tail ─────────────────────────────────────────────────────────────────────
     log_tail = html.Details(
         [
-            html.Summary("Show log", style={"cursor": "pointer", "fontSize": "0.8rem"}),
+            html.Summary(
+                html.Span(
+                    [
+                        html.Span("Show log", className="me-3"),
+                        html.A(
+                            "⬇ Download full log",
+                            id="download-log-btn",
+                            href="#",
+                            style={"fontSize": "0.78rem"},
+                        ),
+                    ]
+                ),
+                style={"cursor": "pointer", "fontSize": "0.8rem"},
+            ),
             html.Pre(
-                "\n".join(messages[-25:]),
+                "\n".join(messages[-50:]),
+                id="ci-log-pre",
                 style={
-                    "maxHeight": "180px",
+                    "maxHeight": "260px",
                     "overflowY": "auto",
                     "fontSize": "0.73rem",
                     "marginTop": "4px",
@@ -1699,6 +1718,7 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
                 },
             ),
         ],
+        open=True,
         style={"marginTop": "4px"},
     )
 
@@ -1732,7 +1752,7 @@ def poll_ci_watch_status(n_intervals, watch_state, files_state):
         except Exception:
             pass
 
-    return card, done, (None if done else watch_state), cancel_style, updated_files_state
+    return card, done, (None if done else watch_state), cancel_style, updated_files_state, messages
 
 
 @app.callback(
@@ -1790,6 +1810,36 @@ def cancel_ci_watch(n_clicks, watch_state):
         None,
         {"display": "none"},
     )
+
+
+# ── Auto-scroll log to bottom when content updates ───────────────────────────
+
+app.clientside_callback(
+    """
+    function(children) {
+        var el = document.getElementById('ci-log-pre');
+        if (el) { el.scrollTop = el.scrollHeight; }
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("ci-log-pre", "id"),
+    Input("ci-watch-status", "children"),
+    prevent_initial_call=True,
+)
+
+
+@app.callback(
+    Output("download-log", "data"),
+    Input("download-log-btn", "n_clicks"),
+    State("ci-log-store", "data"),
+    prevent_initial_call=True,
+)
+def download_full_log(n_clicks, log_messages):
+    """Serve the full CI watch log as a text file download."""
+    if not n_clicks or not log_messages:
+        raise PreventUpdate
+    content = "\n".join(log_messages)
+    return dict(content=content, filename="cicd-gen-ci-watch.log", type="text/plain")
 
 
 # ── Dev runner ────────────────────────────────────────────────────────────────
