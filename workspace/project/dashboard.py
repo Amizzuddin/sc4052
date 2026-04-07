@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 5:47:09 am                            #
+#  Last Modified: Tuesday April 7th 2026 7:05:14 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1097,7 +1097,6 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
     Output("scan-state", "data"),
     Output("language-checklist", "value", allow_duplicate=True),
     Output("language-checklist-2", "value", allow_duplicate=True),
-    Output("token-input", "value"),
     Output("api-key-input", "value"),
     Output("generate-status", "children", allow_duplicate=True),
     Output("yaml-preview", "children", allow_duplicate=True),
@@ -1116,11 +1115,11 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     visible = {"display": "block"}
 
     # Values to clear on every scan attempt
-    _clear = ("", "")  # token-input, api-key-input
+    _clear = ("",)  # api-key-input
     _reset_gen = (None, None, hidden)  # generate-status, yaml-preview, file-browser
 
     def _err(msg_or_component):
-        """Return an error tuple (12 values)."""
+        """Return an error tuple (11 values)."""
         alert = msg_or_component if not isinstance(msg_or_component, str) else _alert(msg_or_component, "danger")
         return (alert, None, hidden, hidden, None, no_update, no_update, *_clear, *_reset_gen)
 
