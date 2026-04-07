@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:36:12 am                             #
+#  Last Modified: Tuesday April 7th 2026 3:42:11 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1089,6 +1089,8 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
     Output("scan-state", "data"),
     Output("language-checklist", "value", allow_duplicate=True),
     Output("language-checklist-2", "value", allow_duplicate=True),
+    Output("token-input", "value"),
+    Output("api-key-input", "value"),
     Input("scan-btn", "n_clicks"),
     State("repo-url-input", "value"),
     State("clone-branch-input", "value"),
@@ -1102,8 +1104,19 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     hidden = {"display": "none"}
     visible = {"display": "block"}
 
+    _clear = ("", "")
+
     if not repo_url or not repo_url.strip():
-        return _alert("Please enter a repository URL.", "warning"), None, hidden, hidden, None, no_update, no_update
+        return (
+            _alert("Please enter a repository URL.", "warning"),
+            None,
+            hidden,
+            hidden,
+            None,
+            no_update,
+            no_update,
+            *_clear,
+        )
 
     repo_url = repo_url.strip()
     clone_branch = (clone_branch or "").strip() or None
@@ -1117,6 +1130,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
             None,
             no_update,
             no_update,
+            *_clear,
         )
 
     # ── Clean up previous temp clone ─────────────────────────────────────────
@@ -1134,6 +1148,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
                 None,
                 no_update,
                 no_update,
+                *_clear,
             )
         clone_url = _inject_token(repo_url, token)
     else:
@@ -1165,6 +1180,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
             None,
             no_update,
             no_update,
+            *_clear,
         )
     except Exception as exc:
         _cleanup(clone_path)
@@ -1176,6 +1192,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
             None,
             no_update,
             no_update,
+            *_clear,
         )
 
     # ── Scan ──────────────────────────────────────────────────────────────────
@@ -1183,7 +1200,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
         scan = scan_repo(clone_path)
     except Exception as exc:
         _cleanup(clone_path)
-        return _alert(f"Scan error: {exc}", "danger"), None, hidden, hidden, None, no_update, no_update
+        return _alert(f"Scan error: {exc}", "danger"), None, hidden, hidden, None, no_update, no_update, *_clear
 
     is_empty = len(git.Repo(clone_path).heads) == 0
 
@@ -1240,7 +1257,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     lang1_values = [l for l in detected_langs if l in _set1]
     lang2_values = [l for l in detected_langs if l in _set2]
 
-    return None, summary, visible, visible, state, lang1_values, lang2_values
+    return None, summary, visible, visible, state, lang1_values, lang2_values, *_clear
 
 
 @app.callback(
