@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 5:47:06 am                            #
+#  Last Modified: Tuesday April 7th 2026 10:54:12 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -246,10 +246,26 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return "rate limit" in msg or "429" in msg or "quota" in msg
 
 
-def _extract_rate_limit_wait(exc: Exception) -> int:
-    """Try to parse a wait-time (seconds) from a rate-limit exception message."""
-    m = re.search(r"~(\d+)s", str(exc))
-    return int(m.group(1)) if m else 60
+def _extract_rate_limit_wait(exc: Exception) -> tuple[int, str]:
+    """Parse wait-time and retry clock time from a rate-limit error.
+
+    Returns ``(seconds, retry_at_str)`` where *retry_at_str* is a
+    human-readable clock time like ``"10:45:30"`` extracted from the
+    error message, or computed from *seconds* if not present.
+    """
+    msg = str(exc)
+    # Try to extract "until HH:MM:SS"
+    m_time = re.search(r"until\s+(\d{1,2}:\d{2}:\d{2})", msg)
+    # Try to extract "~Ns"
+    m_secs = re.search(r"~(\d+)s", msg)
+    wait = int(m_secs.group(1)) if m_secs else 60
+    if m_time:
+        retry_at = m_time.group(1)
+    else:
+        import datetime
+
+        retry_at = (datetime.datetime.now() + datetime.timedelta(seconds=wait)).strftime("%H:%M:%S")
+    return wait, retry_at
 
 
 def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
@@ -266,6 +282,8 @@ def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
     _NOISE = re.compile(r"#\d+\s+\d+\.\d+\s+(Selecting|Preparing|Unpacking|Setting up|Get:\d+)", re.I)
     # pip freeze / package-list lines (e.g. "requests==2.31.0") — not useful for debugging
     _PKG_LIST = re.compile(r"^\S+==\S+$")
+    # Git remote transfer progress lines — pure noise
+    _GIT_REMOTE = re.compile(r"remote:\s*(Counting|Compressing|Enumerating|Resolving|Receiving|Total)\s+\w+", re.I)
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             for name in sorted(zf.namelist()):
@@ -280,13 +298,14 @@ def _extract_log_text(zip_bytes: bytes, max_chars: int = 8_000) -> str:
                 for ln in all_lines[-120:]:
                     # Strip timestamp prefix for the noise check
                     stripped = re.sub(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*", "", ln).strip()
-                    if _PKG_LIST.match(stripped) or _NOISE.search(ln):
+                    if _PKG_LIST.match(stripped) or _NOISE.search(ln) or _GIT_REMOTE.search(stripped):
                         continue
                     if ln not in tail_lines:
                         tail_lines.append(ln)
                 # Lines matching real error keywords (skip Docker build noise)
                 for ln in all_lines:
-                    if _NOISE.search(ln):
+                    stripped = re.sub(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*", "", ln).strip()
+                    if _NOISE.search(ln) or _GIT_REMOTE.search(stripped):
                         continue
                     if re.search(r"error|fail|denied|cannot|not found|exit code", ln, re.I):
                         if ln not in error_lines and ln not in tail_lines:
@@ -560,8 +579,9 @@ def _watch_ci_and_heal(
             except Exception as e:
                 _set_step(llm_idx, "failed")
                 if _is_rate_limit_error(e):
-                    wait = _extract_rate_limit_wait(e)
-                    _log(f"\u23f3 Rate limit hit — waiting {wait}s before retrying...")
+                    wait, retry_at = _extract_rate_limit_wait(e)
+                    _log(f"\u23f3 Rate limit hit \u2014 retrying at {retry_at} (waiting {wait}s)...")
+                    _set_step(llm_idx, "pending")
                     _cancel.wait(wait)
                     if _cancelled():
                         _finish("cancelled")
@@ -713,8 +733,9 @@ def _watch_ci_and_heal(
         except Exception as e:
             _set_step(llm_idx, "failed")
             if _is_rate_limit_error(e):
-                wait = _extract_rate_limit_wait(e)
-                _log(f"\u23f3 Rate limit hit — waiting {wait}s before retrying...")
+                wait, retry_at = _extract_rate_limit_wait(e)
+                _log(f"\u23f3 Rate limit hit — retrying at {retry_at} (waiting {wait}s)...")
+                _set_step(llm_idx, "pending")
                 _cancel.wait(wait)
                 if _cancelled():
                     _finish("cancelled")
