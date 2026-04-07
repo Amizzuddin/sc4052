@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 7:27:27 am                            #
+#  Last Modified: Tuesday April 7th 2026 7:32:11 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -246,6 +246,7 @@ def _build_files_state(
     yaml_content: str,
     dockerfile_content: str | None,
     compose_content: str | None,
+    extra_generated: dict[str, str] | None = None,
 ) -> dict:
     """Collect all generated file paths + contents into a single dict for the file browser."""
     files: dict[str, str] = {}
@@ -261,6 +262,8 @@ def _build_files_state(
         files["Dockerfile"] = dockerfile_content
     if compose_content:
         files["docker-compose.yml"] = compose_content
+    if extra_generated:
+        files.update(extra_generated)
     return {"files": files, "clone_path": clone_path, "default_file": ci_rel}
 
 
@@ -1371,6 +1374,14 @@ def generate_pipeline_cb(
             image_name = re.sub(r"\.git$", "", _url_path) or scan.get("repo_name") or "app"
             compose_content = _generate_compose(image_name, docker_langs, docker_push=wants_docker_push)
             extra_files["docker-compose.yml"] = compose_content
+            if wants_docker_push:
+                extra_files[".env"] = (
+                    "# Docker Hub username — used by docker-compose.yml for image naming.\n"
+                    "# Set this to your Docker Hub username so that:\n"
+                    "#   docker compose pull   → pulls from the registry\n"
+                    "#   docker compose up     → runs the pulled image\n"
+                    "DOCKER_USERNAME=your-dockerhub-username\n"
+                )
 
     extras_parts = []
     if wants_docker:
@@ -1584,7 +1595,14 @@ def generate_pipeline_cb(
     )
 
     # ── Build generated-files state and file-browser tree ────────────────────
-    files_state = _build_files_state(clone_path, platform, yaml_content, dockerfile_content, compose_content)
+    files_state = _build_files_state(
+        clone_path,
+        platform,
+        yaml_content,
+        dockerfile_content,
+        compose_content,
+        extra_generated={k: v for k, v in extra_files.items() if k not in ("Dockerfile", "docker-compose.yml")},
+    )
     tree_options = _files_to_tree_options(files_state["files"])
     default_file = files_state.get("default_file") or (tree_options[0]["value"] if tree_options else None)
 
