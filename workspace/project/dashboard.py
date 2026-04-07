@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 3:42:11 am                            #
+#  Last Modified: Tuesday April 7th 2026 5:47:09 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -59,6 +59,7 @@ from ai_handler import (
     _watch_ci_and_heal,
     check_repo_secrets,
     snapshot_run_ids,
+    validate_github_pat,
 )
 from dash import Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
@@ -432,49 +433,6 @@ app.layout = dbc.Container(
                 ),
             ],
         ),
-        # ── LLM provider ──────────────────────────────────────────────────────
-        _section(
-            "AI Provider",
-            [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            [
-                                dbc.Label("Provider"),
-                                dcc.Dropdown(
-                                    id="llm-provider-dropdown",
-                                    options=[
-                                        {"label": PROVIDER_INFO[p]["label"], "value": p} for p in SUPPORTED_PROVIDERS
-                                    ],
-                                    value=DEFAULT_PROVIDER,
-                                    clearable=False,
-                                    persistence=True,
-                                    persistence_type="session",
-                                ),
-                            ],
-                            md=5,
-                            className="mb-3",
-                        ),
-                        dbc.Col(
-                            [
-                                dbc.Label("API Key"),
-                                dbc.Input(
-                                    id="api-key-input",
-                                    placeholder=PROVIDER_INFO[DEFAULT_PROVIDER]["placeholder"],
-                                    type="password",
-                                    autocomplete="off",
-                                    # No persistence — key lives only in this tab's memory
-                                ),
-                            ],
-                            md=7,
-                            className="mb-3",
-                        ),
-                    ]
-                ),
-                # Dynamic help row — updated by callback
-                html.Div(id="provider-info"),
-            ],
-        ),
         # ── Scan feedback ──────────────────────────────────────────────────────
         html.Div(id="scan-status"),
         # ── Scan result summary (hidden until scan succeeds) ───────────────────
@@ -747,6 +705,46 @@ app.layout = dbc.Container(
                             ),
                         ]
                     ),
+                    # ── AI Provider (inside config panel) ─────────────────────
+                    html.Hr(className="my-3"),
+                    html.H6("AI Provider", className="fw-semibold mb-2"),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    dbc.Label("Provider"),
+                                    dcc.Dropdown(
+                                        id="llm-provider-dropdown",
+                                        options=[
+                                            {"label": PROVIDER_INFO[p]["label"], "value": p}
+                                            for p in SUPPORTED_PROVIDERS
+                                        ],
+                                        value=DEFAULT_PROVIDER,
+                                        clearable=False,
+                                        persistence=True,
+                                        persistence_type="session",
+                                    ),
+                                ],
+                                md=5,
+                                className="mb-3",
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Label("API Key"),
+                                    dbc.Input(
+                                        id="api-key-input",
+                                        placeholder=PROVIDER_INFO[DEFAULT_PROVIDER]["placeholder"],
+                                        type="password",
+                                        autocomplete="off",
+                                    ),
+                                ],
+                                md=7,
+                                className="mb-3",
+                            ),
+                        ]
+                    ),
+                    html.Div(id="provider-info"),
+                    html.Hr(className="my-3"),
                     dbc.Row(
                         dbc.Col(
                             [
@@ -1012,8 +1010,10 @@ def toggle_docker_push_notice(push_values):
     Input("api-key-input", "value"),
     Input("token-input", "value"),
     Input("auth-type", "value"),
+    Input("docker-push-toggle", "value"),
+    Input("secrets-check-result", "children"),
 )
-def toggle_generate_button(scan_state, api_key, token, auth_type):
+def toggle_generate_button(scan_state, api_key, token, auth_type, push_values, secrets_children):
     """Disable the Generate button until the minimum requirements are met."""
     reasons: list[str] = []
     if not scan_state:
@@ -1025,6 +1025,14 @@ def toggle_generate_button(scan_state, api_key, token, auth_type):
             reasons.append("enter an AI provider API key")
     if auth_type == "https-token" and not (token or "").strip():
         reasons.append("enter a personal access token")
+    # When Docker push is enabled, ensure both secrets are present (look for ❌ in badges)
+    if "push" in (push_values or []) and secrets_children:
+        try:
+            rendered = str(secrets_children)
+            if "❌" in rendered:
+                reasons.append("add missing Docker Hub secrets (DOCKER_USERNAME / DOCKER_TOKEN)")
+        except Exception:
+            pass
     if reasons:
         return True, "To generate: " + ", ".join(reasons)
     return False, ""
@@ -1091,6 +1099,9 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
     Output("language-checklist-2", "value", allow_duplicate=True),
     Output("token-input", "value"),
     Output("api-key-input", "value"),
+    Output("generate-status", "children", allow_duplicate=True),
+    Output("yaml-preview", "children", allow_duplicate=True),
+    Output("file-browser", "style", allow_duplicate=True),
     Input("scan-btn", "n_clicks"),
     State("repo-url-input", "value"),
     State("clone-branch-input", "value"),
@@ -1104,51 +1115,48 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     hidden = {"display": "none"}
     visible = {"display": "block"}
 
-    _clear = ("", "")
+    # Values to clear on every scan attempt
+    _clear = ("", "")  # token-input, api-key-input
+    _reset_gen = (None, None, hidden)  # generate-status, yaml-preview, file-browser
+
+    def _err(msg_or_component):
+        """Return an error tuple (12 values)."""
+        alert = msg_or_component if not isinstance(msg_or_component, str) else _alert(msg_or_component, "danger")
+        return (alert, None, hidden, hidden, None, no_update, no_update, *_clear, *_reset_gen)
 
     if not repo_url or not repo_url.strip():
-        return (
-            _alert("Please enter a repository URL.", "warning"),
-            None,
-            hidden,
-            hidden,
-            None,
-            no_update,
-            no_update,
-            *_clear,
-        )
+        return _err(_alert("Please enter a repository URL.", "warning"))
 
     repo_url = repo_url.strip()
     clone_branch = (clone_branch or "").strip() or None
 
     if not (repo_url.startswith("http://") or repo_url.startswith("https://")):
-        return (
-            _alert("URL must start with https:// or http://", "warning"),
-            None,
-            hidden,
-            hidden,
-            None,
-            no_update,
-            no_update,
-            *_clear,
-        )
+        return _err(_alert("URL must start with https:// or http://", "warning"))
 
     # ── Clean up previous temp clone ─────────────────────────────────────────
     if prev_state and prev_state.get("clone_path"):
         _cleanup(prev_state["clone_path"])
 
-    # ── Build clone URL ───────────────────────────────────────────────────────
+    # ── Validate PAT (if private repo) ────────────────────────────────────────
     if auth_type == "https-token":
         if not token:
-            return (
-                _alert("A personal access token is required for private HTTPS repositories.", "warning"),
-                None,
-                hidden,
-                hidden,
-                None,
-                no_update,
-                no_update,
-                *_clear,
+            return _err(_alert("A personal access token is required for private HTTPS repositories.", "warning"))
+        pat_result = validate_github_pat(token)
+        if not pat_result["valid"]:
+            return _err(
+                dbc.Alert(
+                    [
+                        html.Strong("Invalid GitHub PAT: "),
+                        html.Span(pat_result["error"]),
+                        html.Br(),
+                        html.Small(
+                            "Please check that the token is correct and has not expired.",
+                            className="text-muted",
+                        ),
+                    ],
+                    color="danger",
+                    dismissable=True,
+                )
             )
         clone_url = _inject_token(repo_url, token)
     else:
@@ -1168,39 +1176,23 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
         err = str(exc)
         if auth_type == "https-token" and token:
             err = err.replace(token, "***")
-        return (
+        return _err(
             dbc.Alert(
                 [html.Strong("Clone failed: "), html.Code(err, style={"wordBreak": "break-all"})],
                 color="danger",
                 dismissable=True,
-            ),
-            None,
-            hidden,
-            hidden,
-            None,
-            no_update,
-            no_update,
-            *_clear,
+            )
         )
     except Exception as exc:
         _cleanup(clone_path)
-        return (
-            _alert(f"Unexpected error during clone: {exc}", "danger"),
-            None,
-            hidden,
-            hidden,
-            None,
-            no_update,
-            no_update,
-            *_clear,
-        )
+        return _err(f"Unexpected error during clone: {exc}")
 
     # ── Scan ──────────────────────────────────────────────────────────────────
     try:
         scan = scan_repo(clone_path)
     except Exception as exc:
         _cleanup(clone_path)
-        return _alert(f"Scan error: {exc}", "danger"), None, hidden, hidden, None, no_update, no_update, *_clear
+        return _err(f"Scan error: {exc}")
 
     is_empty = len(git.Repo(clone_path).heads) == 0
 
@@ -1257,7 +1249,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     lang1_values = [l for l in detected_langs if l in _set1]
     lang2_values = [l for l in detected_langs if l in _set2]
 
-    return None, summary, visible, visible, state, lang1_values, lang2_values, *_clear
+    return (None, summary, visible, visible, state, lang1_values, lang2_values, *_clear, *_reset_gen)
 
 
 @app.callback(

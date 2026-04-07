@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 1:17:28 am                            #
+#  Last Modified: Tuesday April 7th 2026 5:47:06 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -77,6 +77,36 @@ def _parse_github_repo(repo_url: str) -> tuple[str, str] | None:
     if m:
         return m.group(1), m.group(2)
     return None
+
+
+def validate_github_pat(token: str) -> dict:
+    """Validate a GitHub PAT by calling GET /user.
+
+    Returns ``{"valid": True, "user": "<login>"}`` on success or
+    ``{"valid": False, "error": "<message>"}`` on failure.
+    """
+    url = "https://api.github.com/user"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "cicd-gen/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
+            data = json.loads(resp.read().decode())
+            return {"valid": True, "user": data.get("login", "unknown")}
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {"valid": False, "error": "Invalid or expired token (HTTP 401)"}
+        if e.code == 403:
+            return {"valid": False, "error": "Token lacks required permissions (HTTP 403)"}
+        return {"valid": False, "error": f"GitHub API error (HTTP {e.code})"}
+    except Exception as e:
+        return {"valid": False, "error": f"Connection error: {e}"}
 
 
 # ── GitHub REST API helpers ───────────────────────────────────────────────────
