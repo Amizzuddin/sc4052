@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 7:14:26 am                            #
+#  Last Modified: Tuesday April 7th 2026 7:22:54 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1197,6 +1197,10 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
         _cleanup(clone_path)
         return _err(f"Scan error: {exc}")
 
+    # Override repo_name with the actual name from the URL (not the temp dir)
+    _url_tail = repo_url.rstrip("/").rsplit("/", 1)[-1]
+    scan["repo_name"] = re.sub(r"\.git$", "", _url_tail) or scan.get("repo_name", "app")
+
     is_empty = len(git.Repo(clone_path).heads) == 0
 
     # ── Build summary table ───────────────────────────────────────────────────
@@ -1362,7 +1366,9 @@ def generate_pipeline_cb(
         dockerfile_content = _generate_dockerfile(docker_langs, base_image)
         extra_files["Dockerfile"] = dockerfile_content
         if wants_compose:
-            image_name = scan.get("repo_name") or "app"
+            # Derive repo name from URL (not temp dir) so compose image matches CI push target
+            _url_path = repo_url.rstrip("/").rsplit("/", 1)[-1]
+            image_name = re.sub(r"\.git$", "", _url_path) or scan.get("repo_name") or "app"
             compose_content = _generate_compose(image_name, docker_langs)
             extra_files["docker-compose.yml"] = compose_content
 
