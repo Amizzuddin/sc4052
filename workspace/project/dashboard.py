@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 7:22:54 am                            #
+#  Last Modified: Tuesday April 7th 2026 7:27:27 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1369,7 +1369,7 @@ def generate_pipeline_cb(
             # Derive repo name from URL (not temp dir) so compose image matches CI push target
             _url_path = repo_url.rstrip("/").rsplit("/", 1)[-1]
             image_name = re.sub(r"\.git$", "", _url_path) or scan.get("repo_name") or "app"
-            compose_content = _generate_compose(image_name, docker_langs)
+            compose_content = _generate_compose(image_name, docker_langs, docker_push=wants_docker_push)
             extra_files["docker-compose.yml"] = compose_content
 
     extras_parts = []

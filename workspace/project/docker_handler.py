@@ -138,9 +138,13 @@ def _generate_dockerfile(langs: list[str], base_image: str = "ubuntu:22.04") -> 
     return "\n".join(parts)
 
 
-def _generate_compose(image_name: str, langs: list[str]) -> str:
+def _generate_compose(image_name: str, langs: list[str], docker_push: bool = False) -> str:
     """Generate a docker-compose.yml for the project."""
     safe_name = re.sub(r"[^a-z0-9_-]", "-", image_name.lower()) if image_name else "app"
+    if docker_push:
+        image_ref = f"${{DOCKER_USERNAME}}/{safe_name}:latest"
+    else:
+        image_ref = f"{safe_name}:latest"
     return (
         'version: "3.8"\n'
         "\n"
@@ -149,7 +153,7 @@ def _generate_compose(image_name: str, langs: list[str]) -> str:
         "    build:\n"
         "      context: .\n"
         "      dockerfile: Dockerfile\n"
-        f"    image: {safe_name}:latest\n"
+        f"    image: {image_ref}\n"
         "    # Uncomment to expose a port:\n"
         "    # ports:\n"
         '    #   - "8080:8080"\n'
