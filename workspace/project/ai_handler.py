@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 10:54:12 am                           #
+#  Last Modified: Wednesday April 8th 2026 3:16:07 am                          #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -439,7 +439,7 @@ def _watch_ci_and_heal(
     Background thread: poll GitHub Actions, auto-fix failures, push fixes,
     and retry indefinitely until CI passes or cancel_event is set.
     """
-    from generator import _call_llm, _strip_markdown_fences  # local import
+    from generator import _call_llm, _fix_shell_if_fi, _strip_markdown_fences  # local import
 
     _cancel = cancel_event or threading.Event()
 
@@ -599,6 +599,7 @@ def _watch_ci_and_heal(
                 if nr_fix.get("ci_yaml"):
                     raw_yaml = _sanitize_expressions(nr_fix["ci_yaml"], platform)
                     raw_yaml = _sanitize_runner(raw_yaml, platform)
+                    raw_yaml = _fix_shell_if_fi(raw_yaml)
                     yo = write_config(raw_yaml, clone_path, platform)
                     nr_changed.append(str(yo.relative_to(clone_path)))
                 if nr_fix.get("dockerfile"):
@@ -754,6 +755,7 @@ def _watch_ci_and_heal(
             if fix_data.get("ci_yaml"):
                 raw_yaml = _sanitize_expressions(fix_data["ci_yaml"], platform)
                 raw_yaml = _sanitize_runner(raw_yaml, platform)
+                raw_yaml = _fix_shell_if_fi(raw_yaml)
                 yo = write_config(raw_yaml, clone_path, platform)
                 files_changed.append(str(yo.relative_to(clone_path)))
             if fix_data.get("dockerfile"):

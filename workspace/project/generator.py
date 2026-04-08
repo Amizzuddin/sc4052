@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 1:17:04 am                            #
+#  Last Modified: Wednesday April 8th 2026 3:05:45 am                          #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1204,6 +1204,54 @@ def _patch_test_runner_steps(yaml_content: str, scan: dict) -> str:
     return "".join(result)
 
 
+def _fix_shell_if_fi(yaml_content: str) -> str:
+    """Ensure every ``run: |`` shell block has balanced ``if``/``fi`` pairs.
+
+    The LLM occasionally drops a trailing ``fi`` which causes bash to fail
+    with ``syntax error: unexpected end of file``.  This pass scans each
+    run block and appends any missing ``fi`` lines.
+    """
+    lines = yaml_content.splitlines(keepends=True)
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Detect `run: |` block
+        m = re.match(r"^(\s*)run:\s*\|[-]?\s*\n?$", line)
+        if not m:
+            result.append(line)
+            i += 1
+            continue
+
+        indent = m.group(1)
+        body_indent = indent + "  "
+        block_start = i
+        block_lines: list[str] = [line]
+        i += 1
+        # Collect body lines
+        while i < len(lines):
+            nxt = lines[i]
+            if nxt.strip() == "" or nxt.startswith(body_indent):
+                block_lines.append(nxt)
+                i += 1
+            else:
+                break
+
+        # Count if / fi in the body (skip the `run: |` header)
+        body = "".join(block_lines[1:])
+        ifs = len(re.findall(r"(?:^|\n)\s*if\s+", body))
+        fis = len(re.findall(r"(?:^|\n)\s*fi\s*(?:\n|$)", body))
+
+        if ifs > fis:
+            # Append missing fi(s) at the end of the block
+            for _ in range(ifs - fis):
+                block_lines.append(f"{body_indent}fi\n")
+
+        result.extend(block_lines)
+
+    return "".join(result)
+
+
 def generate_pipeline(
     scan: dict,
     platform: str = "github-actions",
@@ -1234,6 +1282,7 @@ def generate_pipeline(
     if not docker_push_enabled:
         result = _strip_docker_push_steps(result)
     result = _patch_test_runner_steps(result, scan)
+    result = _fix_shell_if_fi(result)
     return result
 
 
