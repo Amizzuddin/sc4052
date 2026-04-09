@@ -1,0 +1,3 @@
+# Ignore cached template manifests (generated at runtime).
+*.json
+!.gitignore

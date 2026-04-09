@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Tuesday April 7th 2026 7:32:11 am                            #
+#  Last Modified: Thursday April 9th 2026 3:20:41 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1382,6 +1382,18 @@ def generate_pipeline_cb(
                     "#   docker compose up     → runs the pulled image\n"
                     "DOCKER_USERNAME=your-dockerhub-username\n"
                 )
+        # Save Docker files to template cache
+        try:
+            from template_store import save_template
+
+            save_template(
+                docker_langs,
+                platform,
+                dockerfile=dockerfile_content,
+                docker_compose=compose_content,
+            )
+        except Exception:
+            pass  # template caching is best-effort
 
     extras_parts = []
     if wants_docker:

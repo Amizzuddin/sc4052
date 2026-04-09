@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Thursday April 9th 2026 1:52:44 pm                           #
+#  Last Modified: Thursday April 9th 2026 3:20:44 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1280,6 +1280,11 @@ def generate_pipeline(
     """
     Generate a CI/CD pipeline config from scan results.
 
+    If a cached template exists for the detected language + platform (and
+    there are no extra_requirements that would require LLM customisation),
+    the template is reused — saving an LLM call.  Otherwise the LLM is
+    called and the result is cached for future runs.
+
     Args:
         scan:                Output from scanner.scan_repo()
         platform:            Target CI/CD platform
@@ -1289,9 +1294,29 @@ def generate_pipeline(
     Returns:
         Generated YAML string
     """
+    from template_store import adapt_template, get_template, save_template
+
     if platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"Unsupported platform '{platform}'. Choose from: {SUPPORTED_PLATFORMS}")
 
+    raw_lang = scan.get("languages") or scan.get("language")
+    langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
+    repo_name = scan.get("repo_name", "")
+
+    # ── Try cached template (skip if user added extra requirements) ───────
+    if not extra_requirements.strip():
+        cached = get_template(langs, platform)
+        if cached and cached.get("ci_yaml"):
+            result = adapt_template(cached["ci_yaml"], scan, repo_name=repo_name)
+            has_compose = "docker-compose" in scan.get("deploy_targets", [])
+            result = _patch_docker_steps(result, has_compose=has_compose)
+            if not docker_push_enabled:
+                result = _strip_docker_push_steps(result)
+            result = _patch_test_runner_steps(result, scan)
+            result = _fix_shell_if_fi(result)
+            return result
+
+    # ── LLM generation (cache miss or custom requirements) ────────────────
     prompt = build_generation_prompt(scan, platform, extra_requirements, docker_push_enabled=docker_push_enabled)
     raw = _call_llm(prompt, provider=provider, api_key=api_key)
     has_compose = "docker-compose" in scan.get("deploy_targets", [])
@@ -1300,6 +1325,10 @@ def generate_pipeline(
         result = _strip_docker_push_steps(result)
     result = _patch_test_runner_steps(result, scan)
     result = _fix_shell_if_fi(result)
+
+    # Save the post-processed result as template for this language
+    save_template(langs, platform, ci_yaml=result)
+
     return result
 
 

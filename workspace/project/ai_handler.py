@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Thursday April 9th 2026 1:54:21 pm                           #
+#  Last Modified: Thursday April 9th 2026 3:20:45 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -443,6 +443,7 @@ def _watch_ci_and_heal(
     and retry indefinitely until CI passes or cancel_event is set.
     """
     from generator import _call_llm, _fix_shell_if_fi, _strip_markdown_fences  # local import
+    from template_store import save_template  # cache known-good templates
 
     _cancel = cancel_event or threading.Event()
 
@@ -696,6 +697,30 @@ def _watch_ci_and_heal(
             _set_step(run_progress_idx, "passed")
             _finish("passed")
             _log(f"✅ CI passed on attempt {attempt}!")
+            # Cache the working YAML as a template for this language
+            try:
+                raw_lang = scan.get("languages") or scan.get("language")
+                langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
+                working_yaml = ""
+                working_dockerfile = None
+                for pat in ("ci.yml", "*.yml"):
+                    yp = next(Path(clone_path).rglob(pat), None)
+                    if yp:
+                        working_yaml = yp.read_text()
+                        break
+                df_p = Path(clone_path) / "Dockerfile"
+                if df_p.exists():
+                    working_dockerfile = df_p.read_text()
+                if working_yaml:
+                    save_template(
+                        langs,
+                        platform,
+                        ci_yaml=working_yaml,
+                        dockerfile=working_dockerfile,
+                    )
+                    _log("📋 Template updated with working CI config.")
+            except Exception:
+                pass  # template caching is best-effort
             return
 
         _set_step(run_progress_idx, "failed")
