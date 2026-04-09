@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Wednesday April 8th 2026 3:05:45 am                          #
+#  Last Modified: Thursday April 9th 2026 1:52:44 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1207,9 +1207,12 @@ def _patch_test_runner_steps(yaml_content: str, scan: dict) -> str:
 def _fix_shell_if_fi(yaml_content: str) -> str:
     """Ensure every ``run: |`` shell block has balanced ``if``/``fi`` pairs.
 
-    The LLM occasionally drops a trailing ``fi`` which causes bash to fail
-    with ``syntax error: unexpected end of file``.  This pass scans each
-    run block and appends any missing ``fi`` lines.
+    The LLM occasionally drops a trailing ``fi`` or duplicates one (e.g. a
+    one-liner ``if …; then …; fi`` already contains ``fi`` but the LLM
+    still emits a standalone ``fi`` on the next line).  This pass scans
+    each ``run: |`` block, counts **all** ``if``/``fi`` tokens using word
+    boundaries, and either appends missing ``fi`` lines or strips excess
+    standalone ``fi`` lines from the end of the block.
     """
     lines = yaml_content.splitlines(keepends=True)
     result: list[str] = []
@@ -1225,7 +1228,6 @@ def _fix_shell_if_fi(yaml_content: str) -> str:
 
         indent = m.group(1)
         body_indent = indent + "  "
-        block_start = i
         block_lines: list[str] = [line]
         i += 1
         # Collect body lines
@@ -1237,15 +1239,30 @@ def _fix_shell_if_fi(yaml_content: str) -> str:
             else:
                 break
 
-        # Count if / fi in the body (skip the `run: |` header)
+        # Count if / fi in the body using word-boundary matches so that
+        # inline one-liners like ``if …; fi`` are counted correctly.
         body = "".join(block_lines[1:])
-        ifs = len(re.findall(r"(?:^|\n)\s*if\s+", body))
-        fis = len(re.findall(r"(?:^|\n)\s*fi\s*(?:\n|$)", body))
+        # \bif\b but NOT elif (negative lookbehind)
+        ifs = len(re.findall(r"(?<!el)\bif\b", body))
+        fis = len(re.findall(r"\bfi\b", body))
 
         if ifs > fis:
             # Append missing fi(s) at the end of the block
             for _ in range(ifs - fis):
                 block_lines.append(f"{body_indent}fi\n")
+        elif fis > ifs:
+            # Remove excess standalone ``fi`` lines from the tail
+            excess = fis - ifs
+            while excess > 0 and len(block_lines) > 1:
+                tail = block_lines[-1]
+                if tail.strip() == "fi":
+                    block_lines.pop()
+                    excess -= 1
+                elif tail.strip() == "":
+                    # skip trailing blanks so we can reach the fi
+                    block_lines.pop()
+                else:
+                    break  # non-fi content → stop
 
         result.extend(block_lines)
 

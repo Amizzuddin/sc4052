@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Wednesday April 8th 2026 3:16:07 am                          #
+#  Last Modified: Thursday April 9th 2026 1:54:21 pm                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -413,6 +413,9 @@ CRITICAL RULES for the fixed YAML:
   NEVER use `ubuntu-20.04`, `ubuntu-18.04`, or any other deprecated image — they are
   retired by GitHub and will leave jobs permanently queued.
 - The file MUST end with a single newline character.
+- Shell one-liners like `if [ -f file ]; then cmd; fi` already contain the closing `fi`.
+  Do NOT add an extra `fi` on a separate line after such one-liners — it causes
+  `syntax error near unexpected token 'fi'`.
 
 No explanation. No markdown wrapping. Just the JSON object."""
 
@@ -592,6 +595,17 @@ def _watch_ci_and_heal(
                 continue
 
             _set_step(llm_idx, "passed")
+
+            # ── dedup: skip if LLM returned the same YAML ──
+            if nr_fix.get("ci_yaml"):
+                _nr_candidate = _sanitize_expressions(nr_fix["ci_yaml"], platform)
+                _nr_candidate = _sanitize_runner(_nr_candidate, platform)
+                _nr_candidate = _fix_shell_if_fi(_nr_candidate)
+                if _nr_candidate.strip() == current_yaml.strip():
+                    _log("⚠ LLM returned identical YAML — skipping this attempt.")
+                    _cancel.wait(10)
+                    continue
+
             push_idx = _add_step(f"Fix attempt {attempt}: pushing commit", "running")
             repo_obj = git.Repo(clone_path)
             nr_changed: list = []
@@ -748,6 +762,17 @@ def _watch_ci_and_heal(
 
         # Apply fixes & push
         _set_step(llm_idx, "passed")
+
+        # ── dedup: skip if LLM returned the same YAML ──
+        if fix_data.get("ci_yaml"):
+            _candidate = _sanitize_expressions(fix_data["ci_yaml"], platform)
+            _candidate = _sanitize_runner(_candidate, platform)
+            _candidate = _fix_shell_if_fi(_candidate)
+            if _candidate.strip() == current_yaml.strip():
+                _log("⚠ LLM returned identical YAML — skipping this attempt.")
+                _cancel.wait(10)
+                continue
+
         push_idx = _add_step(f"Fix attempt {attempt}: pushing commit", "running")
         repo_obj = git.Repo(clone_path)
         files_changed: list = []
