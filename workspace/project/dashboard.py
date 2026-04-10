@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Thursday April 9th 2026 3:20:41 pm                           #
+#  Last Modified: Friday April 10th 2026 3:22:30 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -328,112 +328,9 @@ app.layout = dbc.Container(
                     ],
                     className="mb-3",
                 ),
-                # ── Auth section ───────────────────────────────────────────────
-                dbc.Accordion(
-                    dbc.AccordionItem(
-                        [
-                            dbc.RadioItems(
-                                id="auth-type",
-                                options=[
-                                    {
-                                        "label": html.Span(
-                                            [
-                                                html.Strong("HTTPS — public repo  "),
-                                                html.Small("No credentials needed", className="text-muted"),
-                                            ]
-                                        ),
-                                        "value": "https-public",
-                                    },
-                                    {
-                                        "label": html.Span(
-                                            [
-                                                html.Strong("HTTPS — private repo  "),
-                                                html.Small(
-                                                    "Personal access token (never stored, memory-only)",
-                                                    className="text-muted",
-                                                ),
-                                            ]
-                                        ),
-                                        "value": "https-token",
-                                    },
-                                ],
-                                value="https-public",
-                                className="mb-2",
-                                persistence=True,
-                                persistence_type="session",
-                            ),
-                            # Token row — visible only for https-token
-                            html.Div(
-                                id="token-row",
-                                children=[
-                                    dbc.Input(
-                                        id="token-input",
-                                        placeholder="Personal access token",
-                                        type="password",
-                                        # persistence intentionally omitted (defaults False)
-                                        # token is NEVER written to localStorage or sessionStorage
-                                        autocomplete="off",
-                                    ),
-                                    # How-to guidance for creating a GitHub PAT
-                                    dbc.Accordion(
-                                        dbc.AccordionItem(
-                                            [
-                                                html.Ol(
-                                                    [
-                                                        html.Li(
-                                                            (
-                                                                [
-                                                                    html.Span(step[0]),
-                                                                    (
-                                                                        html.A(step[1], href=step[2], target="_blank")
-                                                                        if len(step) >= 3 and step[2]
-                                                                        else html.Span(step[1] if len(step) > 1 else "")
-                                                                    ),
-                                                                ]
-                                                                if len(step) >= 2
-                                                                else [html.Span(step[0])]
-                                                            ),
-                                                        )
-                                                        for step in GITHUB_PAT_STEPS
-                                                    ],
-                                                    className="mb-0 ps-3",
-                                                ),
-                                                dbc.Alert(
-                                                    [
-                                                        html.Strong("Scopes needed: "),
-                                                        "repo  (for classic tokens)  or  ",
-                                                        html.Strong("Contents: Read & Write"),
-                                                        "  (for fine-grained tokens).",
-                                                    ],
-                                                    color="warning",
-                                                    className="mt-2 mb-0 py-2",
-                                                ),
-                                            ],
-                                            title="How to create a GitHub Personal Access Token (PAT)",
-                                        ),
-                                        start_collapsed=True,
-                                        className="mt-2",
-                                    ),
-                                ],
-                                style={"display": "none"},
-                            ),
-                            dbc.Alert(
-                                [
-                                    html.Strong("Security note: "),
-                                    "Your token is used only to authenticate the git clone/push "
-                                    "operation and is never written to disk, localStorage, or any "
-                                    "server-side store. It exists only in this browser tab's memory "
-                                    "for the duration of the operation.",
-                                ],
-                                color="info",
-                                className="mt-2 mb-0 py-2",
-                            ),
-                        ],
-                        title="Authentication",
-                    ),
-                    start_collapsed=False,
-                    className="mb-0",
-                ),
+                # Hidden elements to keep Dash happy (callbacks reference these IDs)
+                html.Div(id="auth-type", style={"display": "none"}, children="https-token"),
+                html.Div(id="token-row", style={"display": "none"}),
             ],
         ),
         # ── Scan feedback ──────────────────────────────────────────────────────
@@ -708,6 +605,67 @@ app.layout = dbc.Container(
                             ),
                         ]
                     ),
+                    # ── GitHub PAT (inside config panel) ─────────────────────
+                    html.Hr(className="my-3"),
+                    html.H6("GitHub Authentication", className="fw-semibold mb-2"),
+                    dbc.Row(
+                        dbc.Col(
+                            [
+                                dbc.Label("Personal Access Token (PAT)"),
+                                dbc.Input(
+                                    id="token-input",
+                                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                                    type="password",
+                                    autocomplete="off",
+                                ),
+                                dbc.FormText(
+                                    "Required for clone, push, and CI watch. "
+                                    "Never stored — exists only in this tab's memory."
+                                ),
+                                dbc.Accordion(
+                                    dbc.AccordionItem(
+                                        [
+                                            html.Ol(
+                                                [
+                                                    html.Li(
+                                                        (
+                                                            [
+                                                                html.Span(step[0]),
+                                                                (
+                                                                    html.A(step[1], href=step[2], target="_blank")
+                                                                    if len(step) >= 3 and step[2]
+                                                                    else html.Span(step[1] if len(step) > 1 else "")
+                                                                ),
+                                                            ]
+                                                            if len(step) >= 2
+                                                            else [html.Span(step[0])]
+                                                        ),
+                                                    )
+                                                    for step in GITHUB_PAT_STEPS
+                                                ],
+                                                className="mb-0 ps-3",
+                                            ),
+                                            dbc.Alert(
+                                                [
+                                                    html.Strong("Scopes needed: "),
+                                                    "repo  (for classic tokens)  or  ",
+                                                    html.Strong("Contents: Read & Write"),
+                                                    "  (for fine-grained tokens).",
+                                                ],
+                                                color="warning",
+                                                className="mt-2 mb-0 py-2",
+                                            ),
+                                        ],
+                                        title="How to create a GitHub Personal Access Token (PAT)",
+                                    ),
+                                    start_collapsed=True,
+                                    className="mt-2",
+                                ),
+                            ],
+                            md=12,
+                            className="mb-3",
+                        )
+                    ),
                     # ── AI Provider (inside config panel) ─────────────────────
                     html.Hr(className="my-3"),
                     html.H6("AI Provider", className="fw-semibold mb-2"),
@@ -981,15 +939,6 @@ def update_provider_info(provider):
 
 
 @app.callback(
-    Output("token-row", "style"),
-    Input("auth-type", "value"),
-)
-def toggle_token_row(auth_type):
-    """Show the token field only when HTTPS + private is selected."""
-    return {"display": "block"} if auth_type == "https-token" else {"display": "none"}
-
-
-@app.callback(
     Output("docker-options-row", "style"),
     Input("docker-toggle", "value"),
 )
@@ -1016,11 +965,10 @@ def toggle_docker_push_notice(push_values):
     Input("scan-state", "data"),
     Input("api-key-input", "value"),
     Input("token-input", "value"),
-    Input("auth-type", "value"),
     Input("docker-push-toggle", "value"),
     Input("secrets-check-result", "children"),
 )
-def toggle_generate_button(scan_state, api_key, token, auth_type, push_values, secrets_children):
+def toggle_generate_button(scan_state, api_key, token, push_values, secrets_children):
     """Disable the Generate button until the minimum requirements are met."""
     reasons: list[str] = []
     if not scan_state:
@@ -1030,8 +978,8 @@ def toggle_generate_button(scan_state, api_key, token, auth_type, push_values, s
         env_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GROQ_API_KEY") or ""
         if not env_key:
             reasons.append("enter an AI provider API key")
-    if auth_type == "https-token" and not (token or "").strip():
-        reasons.append("enter a personal access token")
+    if not (token or "").strip():
+        reasons.append("enter a GitHub personal access token")
     # When Docker push is enabled, ensure both secrets are present (look for ❌ in badges)
     if "push" in (push_values or []) and secrets_children:
         try:
@@ -1111,12 +1059,11 @@ def check_docker_secrets(n_intervals, push_values, scan_state, token):
     Input("scan-btn", "n_clicks"),
     State("repo-url-input", "value"),
     State("clone-branch-input", "value"),
-    State("auth-type", "value"),
     State("token-input", "value"),
     State("scan-state", "data"),
     prevent_initial_call=True,
 )
-def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_state):
+def scan_repository(n_clicks, repo_url, clone_branch, token, prev_state):
     """Clone the remote repo and scan its tech stack."""
     hidden = {"display": "none"}
     visible = {"display": "block"}
@@ -1143,30 +1090,31 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     if prev_state and prev_state.get("clone_path"):
         _cleanup(prev_state["clone_path"])
 
-    # ── Validate PAT (if private repo) ────────────────────────────────────────
-    if auth_type == "https-token":
-        if not token:
-            return _err(_alert("A personal access token is required for private HTTPS repositories.", "warning"))
-        pat_result = validate_github_pat(token)
-        if not pat_result["valid"]:
-            return _err(
-                dbc.Alert(
-                    [
-                        html.Strong("Invalid GitHub PAT: "),
-                        html.Span(pat_result["error"]),
-                        html.Br(),
-                        html.Small(
-                            "Please check that the token is correct and has not expired.",
-                            className="text-muted",
-                        ),
-                    ],
-                    color="danger",
-                    dismissable=True,
-                )
+    # ── Validate PAT ──────────────────────────────────────────────────────────
+    if not token:
+        return _err(
+            _alert(
+                "A personal access token (PAT) is required. Enter it in the Pipeline Configuration panel.", "warning"
             )
-        clone_url = _inject_token(repo_url, token)
-    else:
-        clone_url = repo_url
+        )
+    pat_result = validate_github_pat(token)
+    if not pat_result["valid"]:
+        return _err(
+            dbc.Alert(
+                [
+                    html.Strong("Invalid GitHub PAT: "),
+                    html.Span(pat_result["error"]),
+                    html.Br(),
+                    html.Small(
+                        "Please check that the token is correct and has not expired.",
+                        className="text-muted",
+                    ),
+                ],
+                color="danger",
+                dismissable=True,
+            )
+        )
+    clone_url = _inject_token(repo_url, token)
 
     # ── Clone ─────────────────────────────────────────────────────────────────
     clone_path = tempfile.mkdtemp(prefix="cicd-gen-")
@@ -1180,7 +1128,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
     except git.exc.GitCommandError as exc:
         _cleanup(clone_path)
         err = str(exc)
-        if auth_type == "https-token" and token:
+        if token:
             err = err.replace(token, "***")
         return _err(
             dbc.Alert(
@@ -1248,7 +1196,7 @@ def scan_repository(n_clicks, repo_url, clone_branch, auth_type, token, prev_sta
         "clone_path": clone_path,
         "url": repo_url,
         "is_empty": is_empty,
-        "auth_type": auth_type,
+        "auth_type": "https-token",
     }
 
     # Pre-select detected language(s) in the checklist
@@ -1318,7 +1266,7 @@ def generate_pipeline_cb(
     clone_path = scan_state.get("clone_path")
     scan = scan_state.get("scan", {})
     repo_url = scan_state.get("url", "")
-    auth_type = scan_state.get("auth_type", "https-public")
+    auth_type = "https-token"
 
     if not clone_path or not Path(clone_path).is_dir():
         return (
@@ -1450,6 +1398,7 @@ def generate_pipeline_cb(
             docker_push_enabled=wants_docker_push,
             api_key=resolved_api_key,
             provider=provider,
+            user_extra_requirements=extra_requirements or "",
         )
         yaml_content = _sanitize_expressions(yaml_content, platform)
         yaml_content = _sanitize_runner(yaml_content, platform)
@@ -1534,11 +1483,10 @@ def generate_pipeline_cb(
     if wants_push:
         try:
             push_url = repo_url
-            if auth_type == "https-token":
-                if not token:
-                    push_msg = "  ⚠ Push skipped: no token provided."
-                else:
-                    push_url = _inject_token(repo_url, token)
+            if not token:
+                push_msg = "  ⚠ Push skipped: no token provided."
+            else:
+                push_url = _inject_token(repo_url, token)
             if not push_msg:
                 _push_branch(repo, push_url, branch_name, auth_type)
                 push_msg = f"  Branch '{branch_name}' pushed to remote."

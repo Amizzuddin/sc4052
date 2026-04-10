@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Thursday April 9th 2026 3:20:44 pm                           #
+#  Last Modified: Friday April 10th 2026 1:07:05 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1050,11 +1050,19 @@ def _patch_test_runner_steps(yaml_content: str, scan: dict) -> str:
             already_rewritten = rewrite_re and rewrite_re[1] in body_text
             if re.search(find_re, body_text) and not already_rewritten:
                 patched: list[str] = [block_lines[0]]  # keep `run: |` line
+                inserted_install = False
                 if install_cmd and install_cmd not in body_text:
                     patched.append(f"{body_indent}{install_cmd}\n")
+                    inserted_install = True
                 for bl in block_lines[1:]:
                     if rewrite_re:
-                        patched.append(re.sub(rewrite_re[0], rewrite_re[1], bl))
+                        # Never rewrite the install_cmd line itself (e.g.
+                        # "pip install pytest" must NOT become
+                        # "pip install python -m pytest").
+                        if install_cmd and install_cmd in bl:
+                            patched.append(bl)
+                        else:
+                            patched.append(re.sub(rewrite_re[0], rewrite_re[1], bl))
                     else:
                         patched.append(bl)
                 result.extend(patched)
@@ -1276,20 +1284,23 @@ def generate_pipeline(
     docker_push_enabled: bool = False,
     api_key: str | None = None,
     provider: str = "gemini",
+    user_extra_requirements: str = "",
 ) -> str:
     """
     Generate a CI/CD pipeline config from scan results.
 
     If a cached template exists for the detected language + platform (and
-    there are no extra_requirements that would require LLM customisation),
-    the template is reused — saving an LLM call.  Otherwise the LLM is
-    called and the result is cached for future runs.
+    there are no user_extra_requirements that would require LLM
+    customisation), the template is reused — saving an LLM call.
+    Otherwise the LLM is called and the result is cached for future runs.
 
     Args:
-        scan:                Output from scanner.scan_repo()
-        platform:            Target CI/CD platform
-        extra_requirements:  Optional extra requirements in plain English
-        docker_push_enabled: Whether to include Docker login + push steps
+        scan:                    Output from scanner.scan_repo()
+        platform:                Target CI/CD platform
+        extra_requirements:      Full extra requirements (system + user)
+        docker_push_enabled:     Whether to include Docker login + push steps
+        user_extra_requirements: Only the user-typed extra requirements
+                                 (used for template cache bypass decision)
 
     Returns:
         Generated YAML string
@@ -1303,10 +1314,11 @@ def generate_pipeline(
     langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
     repo_name = scan.get("repo_name", "")
 
-    # ── Try cached template (skip if user added extra requirements) ───────
-    if not extra_requirements.strip():
+    # ── Try cached template (skip only if user typed custom requirements) ─
+    if not user_extra_requirements.strip():
         cached = get_template(langs, platform)
         if cached and cached.get("ci_yaml"):
+            # cached["ci_yaml"] is a parsed dict; adapt returns YAML string
             result = adapt_template(cached["ci_yaml"], scan, repo_name=repo_name)
             has_compose = "docker-compose" in scan.get("deploy_targets", [])
             result = _patch_docker_steps(result, has_compose=has_compose)
