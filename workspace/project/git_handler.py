@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Monday April 6th 2026 7:09:41 am                             #
+#  Last Modified: Friday April 10th 2026 11:10:06 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -337,10 +337,19 @@ def _create_stub_dep_files(clone_path: str, scan: dict) -> list[str]:
 
 
 def _ensure_trailing_newline(path: Path) -> None:
-    """Make sure the file ends with exactly one newline (silences end-of-file-fixer)."""
+    """Match the behaviour of *end-of-file-fixer*:
+    - Whitespace-only files → empty (0 bytes).
+    - Non-empty files → end with exactly one ``\n``.
+    """
     content = path.read_text()
-    if not content.endswith("\n"):
-        path.write_text(content + "\n")
+    # end-of-file-fixer treats whitespace-only files as empty
+    if not content.strip():
+        if content:  # was non-empty whitespace → truncate
+            path.write_text("")
+        return
+    stripped = content.rstrip()
+    if content != stripped + "\n":
+        path.write_text(stripped + "\n")
 
 
 def _run_precommit_on_files(clone_path: str, rel_files: list[str]) -> None:
@@ -388,17 +397,20 @@ def _run_precommit_on_files(clone_path: str, rel_files: list[str]) -> None:
 
 
 def _run_precommit_local(clone_path: str) -> None:
+    """Format every file in *clone_path* so pre-commit in CI passes cleanly.
+
+    Strategy (belt-and-suspenders):
+    1. Fix end-of-file newlines ourselves (matches ``end-of-file-fixer``).
+    2. Run ``black`` and ``isort`` **directly** on every ``*.py`` file —
+       this is the guaranteed formatter pass that does NOT depend on
+       pre-commit hook environments being downloadable inside the
+       container.
+    3. *Then* attempt ``pre-commit run --all-files`` (2-pass) as a
+       best-effort catch-all for any remaining hooks.
     """
-    Ensure every generated/stub file ends with a newline, then run
-    `pre-commit run --all-files` up to TWO times:
-      Pass 1 — formatters apply fixes (exit 1 = files modified, expected).
-      Pass 2 — verify the fixes are stable (exit 0 = clean).
-    If pass 2 still exits 1 we log a warning but do NOT block the commit;
-    the pushed branch will still trigger GitHub Actions where pre-commit
-    will report the remaining issues.
-    """
-    # Fix end-of-file newlines on every file in the repo before running hooks
     repo_root = Path(clone_path)
+
+    # ── 1. end-of-file newlines ──────────────────────────────────────────
     for p in repo_root.rglob("*"):
         if p.is_file() and ".git" not in p.parts:
             try:
@@ -406,6 +418,45 @@ def _run_precommit_local(clone_path: str) -> None:
             except Exception:
                 pass
 
+    # ── 2. Direct black + isort (guaranteed, no hook env needed) ─────────
+    py_files = [str(p) for p in repo_root.rglob("*.py") if ".git" not in p.parts]
+    if py_files:
+        black_bin = shutil.which("black")
+        if black_bin:
+            r = subprocess.run(
+                [black_bin, "--quiet", *py_files],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+            )
+            if r.returncode != 0:
+                print(
+                    f"[cicd-gen] black warning (exit {r.returncode}):\n{r.stderr}",
+                    file=sys.stderr,
+                )
+        isort_bin = shutil.which("isort")
+        if isort_bin:
+            r = subprocess.run(
+                [isort_bin, "--profile", "black", "--quiet", *py_files],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+            )
+            if r.returncode != 0:
+                print(
+                    f"[cicd-gen] isort warning (exit {r.returncode}):\n{r.stderr}",
+                    file=sys.stderr,
+                )
+
+    # Re-fix newlines after formatters may have added trailing whitespace
+    for p in repo_root.rglob("*"):
+        if p.is_file() and ".git" not in p.parts:
+            try:
+                _ensure_trailing_newline(p)
+            except Exception:
+                pass
+
+    # ── 3. Best-effort pre-commit (catches any remaining hooks) ──────────
     pre_commit_bin = shutil.which("pre-commit")
     if not pre_commit_bin:
         return
