@@ -1,0 +1,59 @@
+{
+  "ci_yaml": {
+    "name": "sc4052_test Pipeline",
+    "on": {
+      "push": {
+        "branches": [
+          "**"
+        ]
+      },
+      "pull_request": {
+        "branches": [
+          "**"
+        ]
+      }
+    },
+    "jobs": {
+      "build-and-deploy": {
+        "runs-on": "ubuntu-latest",
+        "steps": [
+          {
+            "name": "Checkout code",
+            "uses": "actions/checkout@v3"
+          },
+          {
+            "name": "Install dependencies",
+            "run": "if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n"
+          },
+          {
+            "name": "Lint (pre-commit)",
+            "uses": "pre-commit/action@v3.0.1"
+          },
+          {
+            "name": "Run tests",
+            "run": "pip install pytest --quiet\npython -m pytest --tb=short -q\n",
+            "env": {
+              "PYTHONPATH": "."
+            }
+          },
+          {
+            "name": "Docker build",
+            "run": "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n  docker compose build\nfi\n"
+          },
+          {
+            "name": "Docker login & push",
+            "env": {
+              "DOCKER_TOKEN": "${{ secrets.DOCKER_TOKEN }}",
+              "DOCKER_USERNAME": "${{ secrets.DOCKER_USERNAME }}"
+            },
+            "run": "if [ -z \"$DOCKER_TOKEN\" ]; then\n  echo \"DOCKER_TOKEN not set — skipping Docker push\"\n  exit 0\nfi\nREPO_NAME=\"${{ github.event.repository.name }}\"\necho \"$DOCKER_TOKEN\" | docker login -u \"$DOCKER_USERNAME\" --password-stdin\nif [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n  sed -i \"s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|\" docker-compose.yml docker-compose.yaml 2>/dev/null || true\n  docker compose build\n  docker compose push\nfi\n"
+          },
+          {
+            "name": "Deploy (optional)",
+            "run": "echo \"No deployment configured — add your deploy command here.\""
+          }
+        ]
+      }
+    }
+  }
+}

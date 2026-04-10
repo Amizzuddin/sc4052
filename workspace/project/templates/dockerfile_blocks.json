@@ -1,0 +1,127 @@
+{
+  "python": {
+    "system_packages": ["python3", "python3-pip", "python3-venv"],
+    "toolchain": null,
+    "package_managers": {
+      "pip": "# Python — install deps\nRUN if [ -f requirements.txt ]; then pip3 install --no-cache-dir -r requirements.txt; fi",
+      "pip (pyproject)": "# Python — install from pyproject.toml\nRUN if [ -f pyproject.toml ]; then pip3 install --no-cache-dir .; fi",
+      "pipenv": "# Python — install via Pipenv\nRUN pip3 install --no-cache-dir pipenv \\\n && if [ -f Pipfile ]; then pipenv install --system --deploy; fi",
+      "poetry": "# Python — install via Poetry\nRUN pip3 install --no-cache-dir poetry \\\n && if [ -f pyproject.toml ]; then poetry install --no-interaction; fi"
+    },
+    "default_pm": "pip",
+    "test_runners": {
+      "pytest": "RUN pip3 install --no-cache-dir pytest",
+      "unittest": ""
+    }
+  },
+  "node": {
+    "system_packages": [],
+    "toolchain": "# Node.js LTS (via NodeSource)\nRUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \\\n    && apt-get install -y nodejs",
+    "package_managers": {
+      "npm": "# Node — install deps\nRUN if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi",
+      "yarn": "# Node — install via Yarn\nRUN npm install -g yarn \\\n && if [ -f yarn.lock ]; then yarn install --frozen-lockfile; fi",
+      "pnpm": "# Node — install via pnpm\nRUN npm install -g pnpm \\\n && if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; fi"
+    },
+    "default_pm": "npm",
+    "test_runners": {
+      "jest": "RUN npm install -g jest",
+      "mocha": "RUN npm install -g mocha",
+      "vitest": ""
+    }
+  },
+  "typescript": {
+    "system_packages": [],
+    "toolchain": "# Node.js LTS (via NodeSource)\nRUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \\\n    && apt-get install -y nodejs",
+    "package_managers": {
+      "npm": "# Node/TS — install deps\nRUN if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install; fi",
+      "yarn": "# Node/TS — install via Yarn\nRUN npm install -g yarn \\\n && if [ -f yarn.lock ]; then yarn install --frozen-lockfile; fi",
+      "pnpm": "# Node/TS — install via pnpm\nRUN npm install -g pnpm \\\n && if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; fi"
+    },
+    "default_pm": "npm",
+    "test_runners": {
+      "jest": "RUN npm install -g jest",
+      "mocha": "RUN npm install -g mocha",
+      "vitest": ""
+    }
+  },
+  "go": {
+    "system_packages": [],
+    "toolchain": "# Go toolchain\nRUN curl -fsSL https://go.dev/dl/go1.22.0.linux-amd64.tar.gz \\\n    | tar -C /usr/local -xz\nENV PATH=$PATH:/usr/local/go/bin",
+    "package_managers": {
+      "go modules": "# Go — download modules\nRUN if [ -f go.mod ]; then go mod download; fi"
+    },
+    "default_pm": "go modules",
+    "test_runners": {
+      "go test": ""
+    }
+  },
+  "rust": {
+    "system_packages": [],
+    "toolchain": "# Rust toolchain (rustup)\nRUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y\nENV PATH=$PATH:/root/.cargo/bin",
+    "package_managers": {
+      "cargo": "# Rust — prefetch crate registry\nRUN if [ -f Cargo.toml ]; then cargo fetch; fi"
+    },
+    "default_pm": "cargo",
+    "test_runners": {
+      "cargo test": ""
+    }
+  },
+  "ruby": {
+    "system_packages": ["ruby", "ruby-dev", "libffi-dev", "libssl-dev"],
+    "toolchain": null,
+    "package_managers": {
+      "bundler": "# Ruby — install gems\nRUN if [ -f Gemfile ]; then gem install bundler --no-document && bundle install; fi"
+    },
+    "default_pm": "bundler",
+    "test_runners": {
+      "rspec": "RUN gem install rspec --no-document",
+      "minitest": ""
+    }
+  },
+  "java": {
+    "system_packages": ["default-jdk"],
+    "toolchain": null,
+    "package_managers": {
+      "maven": "# Java — resolve Maven dependencies\nRUN if [ -f pom.xml ]; then mvn dependency:resolve -q; fi",
+      "gradle": "# Java — resolve Gradle dependencies\nRUN if [ -f build.gradle ]; then gradle dependencies -q; fi"
+    },
+    "default_pm": "maven",
+    "test_runners": {
+      "junit": ""
+    }
+  },
+  "kotlin": {
+    "system_packages": ["default-jdk"],
+    "toolchain": null,
+    "package_managers": {
+      "maven": "# Kotlin — resolve Maven dependencies\nRUN if [ -f pom.xml ]; then mvn dependency:resolve -q; fi",
+      "gradle": "# Kotlin — resolve Gradle dependencies\nRUN if [ -f build.gradle ] || [ -f build.gradle.kts ]; then gradle dependencies -q; fi"
+    },
+    "default_pm": "gradle",
+    "test_runners": {
+      "junit": ""
+    }
+  },
+  "php": {
+    "system_packages": ["php", "php-cli", "php-mbstring", "php-xml"],
+    "toolchain": "# PHP Composer\nRUN curl -sS https://getcomposer.org/installer \\\n    | php -- --install-dir=/usr/local/bin --filename=composer",
+    "package_managers": {
+      "composer": "# PHP — install composer packages\nRUN if [ -f composer.json ]; then composer install --no-dev --optimize-autoloader; fi"
+    },
+    "default_pm": "composer",
+    "test_runners": {
+      "phpunit": "RUN composer global require phpunit/phpunit"
+    }
+  },
+  "dotnet": {
+    "system_packages": [],
+    "toolchain": "# .NET SDK\nRUN curl -fsSL https://dot.net/v1/dotnet-install.sh \\\n    | bash /dev/stdin --channel 8.0\nENV PATH=$PATH:/root/.dotnet:/root/.dotnet/tools",
+    "package_managers": {
+      "nuget": "# .NET — restore packages\nRUN if ls *.csproj 1>/dev/null 2>&1; then dotnet restore; fi"
+    },
+    "default_pm": "nuget",
+    "test_runners": {
+      "dotnet test": ""
+    }
+  }
+}
