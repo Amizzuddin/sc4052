@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 10:42:01 am                           #
+#  Last Modified: Friday April 10th 2026 10:52:59 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -714,6 +714,8 @@ def _watch_ci_and_heal(
 
             push_idx = _add_step(f"Fix attempt {attempt}: pushing commit", "running")
             repo_obj = git.Repo(clone_path)
+            repo_obj.config_writer().set_value("user", "name", "cicd-gen").release()
+            repo_obj.config_writer().set_value("user", "email", "cicd-gen@auto.fix").release()
             nr_changed: list = []
             try:
                 if nr_fix.get("ci_yaml"):
@@ -912,6 +914,8 @@ def _watch_ci_and_heal(
 
         push_idx = _add_step(f"Fix attempt {attempt}: pushing commit", "running")
         repo_obj = git.Repo(clone_path)
+        repo_obj.config_writer().set_value("user", "name", "cicd-gen").release()
+        repo_obj.config_writer().set_value("user", "email", "cicd-gen@auto.fix").release()
         files_changed: list = []
         try:
             if fix_data.get("ci_yaml"):
