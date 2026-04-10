@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 3:22:30 am                            #
+#  Last Modified: Friday April 10th 2026 3:25:46 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -328,6 +328,67 @@ app.layout = dbc.Container(
                     ],
                     className="mb-3",
                 ),
+                # ── GitHub PAT (always visible) ──────────────────────────
+                html.Hr(className="my-2"),
+                html.H6("🔑 GitHub Authentication", className="fw-semibold mb-2"),
+                dbc.Row(
+                    dbc.Col(
+                        [
+                            dbc.Label("Personal Access Token (PAT)"),
+                            dbc.Input(
+                                id="token-input",
+                                placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                                type="password",
+                                autocomplete="off",
+                            ),
+                            dbc.FormText(
+                                "Required for clone, push, and CI watch. "
+                                "Never stored — exists only in this tab's memory."
+                            ),
+                            dbc.Accordion(
+                                dbc.AccordionItem(
+                                    [
+                                        html.Ol(
+                                            [
+                                                html.Li(
+                                                    (
+                                                        [
+                                                            html.Span(step[0]),
+                                                            (
+                                                                html.A(step[1], href=step[2], target="_blank")
+                                                                if len(step) >= 3 and step[2]
+                                                                else html.Span(step[1] if len(step) > 1 else "")
+                                                            ),
+                                                        ]
+                                                        if len(step) >= 2
+                                                        else [html.Span(step[0])]
+                                                    ),
+                                                )
+                                                for step in GITHUB_PAT_STEPS
+                                            ],
+                                            className="mb-0 ps-3",
+                                        ),
+                                        dbc.Alert(
+                                            [
+                                                html.Strong("Scopes needed: "),
+                                                "repo  (for classic tokens)  or  ",
+                                                html.Strong("Contents: Read & Write"),
+                                                "  (for fine-grained tokens).",
+                                            ],
+                                            color="warning",
+                                            className="mt-2 mb-0 py-2",
+                                        ),
+                                    ],
+                                    title="How to create a GitHub Personal Access Token (PAT)",
+                                ),
+                                start_collapsed=True,
+                                className="mt-2",
+                            ),
+                        ],
+                        md=12,
+                        className="mb-3",
+                    )
+                ),
                 # Hidden elements to keep Dash happy (callbacks reference these IDs)
                 html.Div(id="auth-type", style={"display": "none"}, children="https-token"),
                 html.Div(id="token-row", style={"display": "none"}),
@@ -604,67 +665,6 @@ app.layout = dbc.Container(
                                 className="mb-3",
                             ),
                         ]
-                    ),
-                    # ── GitHub PAT (inside config panel) ─────────────────────
-                    html.Hr(className="my-3"),
-                    html.H6("GitHub Authentication", className="fw-semibold mb-2"),
-                    dbc.Row(
-                        dbc.Col(
-                            [
-                                dbc.Label("Personal Access Token (PAT)"),
-                                dbc.Input(
-                                    id="token-input",
-                                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                                    type="password",
-                                    autocomplete="off",
-                                ),
-                                dbc.FormText(
-                                    "Required for clone, push, and CI watch. "
-                                    "Never stored — exists only in this tab's memory."
-                                ),
-                                dbc.Accordion(
-                                    dbc.AccordionItem(
-                                        [
-                                            html.Ol(
-                                                [
-                                                    html.Li(
-                                                        (
-                                                            [
-                                                                html.Span(step[0]),
-                                                                (
-                                                                    html.A(step[1], href=step[2], target="_blank")
-                                                                    if len(step) >= 3 and step[2]
-                                                                    else html.Span(step[1] if len(step) > 1 else "")
-                                                                ),
-                                                            ]
-                                                            if len(step) >= 2
-                                                            else [html.Span(step[0])]
-                                                        ),
-                                                    )
-                                                    for step in GITHUB_PAT_STEPS
-                                                ],
-                                                className="mb-0 ps-3",
-                                            ),
-                                            dbc.Alert(
-                                                [
-                                                    html.Strong("Scopes needed: "),
-                                                    "repo  (for classic tokens)  or  ",
-                                                    html.Strong("Contents: Read & Write"),
-                                                    "  (for fine-grained tokens).",
-                                                ],
-                                                color="warning",
-                                                className="mt-2 mb-0 py-2",
-                                            ),
-                                        ],
-                                        title="How to create a GitHub Personal Access Token (PAT)",
-                                    ),
-                                    start_collapsed=True,
-                                    className="mt-2",
-                                ),
-                            ],
-                            md=12,
-                            className="mb-3",
-                        )
                     ),
                     # ── AI Provider (inside config panel) ─────────────────────
                     html.Hr(className="my-3"),
