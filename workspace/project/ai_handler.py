@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 6:14:21 am                            #
+#  Last Modified: Friday April 10th 2026 9:32:45 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -65,6 +65,33 @@ import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path
+
+# Valid JSON escape characters after a backslash
+_VALID_JSON_ESCAPES = frozenset('"\\bfnrtu/')
+
+
+def _repair_llm_json(text: str) -> dict:
+    """Parse *text* as JSON, repairing invalid backslash escapes first.
+
+    LLMs sometimes embed raw CI log snippets that contain ANSI escape codes
+    (``\\e``, ``\\033``) or Windows-style paths (``C:\\Users``).  These
+    produce ``Invalid \\escape`` errors in ``json.loads``.  We fix them by
+    double-escaping any ``\\X`` where ``X`` is not a valid JSON escape char.
+    ``strict=False`` is used to tolerate control characters in strings.
+    """
+    try:
+        return json.loads(text, strict=False)
+    except json.JSONDecodeError:
+        # Repair: replace \X with \\X when X is not a legal JSON escape
+        def _fix_escape(m: re.Match) -> str:
+            ch = m.group(1)
+            if ch in _VALID_JSON_ESCAPES:
+                return m.group(0)  # keep valid escapes
+            return "\\\\" + ch  # double the backslash
+
+        repaired = re.sub(r"\\(.)", _fix_escape, text)
+        return json.loads(repaired, strict=False)
+
 
 import git
 from git_handler import _ensure_trailing_newline, _run_precommit_on_files
@@ -609,7 +636,7 @@ def _watch_ci_and_heal(
             try:
                 nr_raw = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=3000)
                 nr_raw = _strip_markdown_fences(nr_raw)
-                nr_fix = json.loads(nr_raw)
+                nr_fix = _repair_llm_json(nr_raw)
             except Exception as e:
                 _set_step(llm_idx, "failed")
                 if _is_rate_limit_error(e):
@@ -794,7 +821,7 @@ def _watch_ci_and_heal(
         try:
             raw_fix = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=3000)
             raw_fix = _strip_markdown_fences(raw_fix)
-            fix_data: dict = json.loads(raw_fix)
+            fix_data: dict = _repair_llm_json(raw_fix)
         except Exception as e:
             _set_step(llm_idx, "failed")
             if _is_rate_limit_error(e):
