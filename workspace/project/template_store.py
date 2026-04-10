@@ -174,42 +174,48 @@ def _is_docker_related_step(step: dict) -> bool:
 
 # ── Default Docker steps (injected when the template lacks them) ──────────────
 
-_DEFAULT_DOCKER_BUILD_STEP: dict = {
-    "name": "Docker build",
-    "run": (
-        'REPO_NAME="${{github.event.repository.name}}"\n'
-        "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
-        "  docker compose build\n"
-        "elif [ -f Dockerfile ]; then\n"
-        '  docker build -t "$REPO_NAME:latest" .\n'
-        "fi\n"
-    ),
-}
 
-_DEFAULT_DOCKER_PUSH_STEP: dict = {
-    "name": "Docker login & push",
-    "env": {
-        "DOCKER_TOKEN": "${{ secrets.DOCKER_TOKEN }}",
-        "DOCKER_USERNAME": "${{ secrets.DOCKER_USERNAME }}",
-    },
-    "run": (
+def _make_docker_build_step(compose_enabled: bool) -> dict:
+    """Return a Docker build step appropriate for compose vs plain Dockerfile."""
+    if compose_enabled:
+        run = "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n" "  docker compose build\n" "fi\n"
+    else:
+        run = 'REPO_NAME="${{github.event.repository.name}}"\n' 'docker build -t "$REPO_NAME:latest" .\n'
+    return {"name": "Docker build", "run": run}
+
+
+def _make_docker_push_step(compose_enabled: bool) -> dict:
+    """Return a Docker login & push step appropriate for compose vs plain."""
+    if compose_enabled:
+        push_body = (
+            "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
+            '  sed -i "s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|" '
+            "docker-compose.yml docker-compose.yaml 2>/dev/null || true\n"
+            "  docker compose build\n"
+            "  docker compose push\n"
+            "fi\n"
+        )
+    else:
+        push_body = (
+            'docker build -t "$DOCKER_USERNAME/$REPO_NAME:${{github.sha}}" .\n'
+            'docker push "$DOCKER_USERNAME/$REPO_NAME:${{github.sha}}"\n'
+        )
+    run = (
         'if [ -z "$DOCKER_TOKEN" ]; then\n'
         '  echo "DOCKER_TOKEN not set \u2014 skipping Docker push"\n'
         "  exit 0\n"
         "fi\n"
         'REPO_NAME="${{github.event.repository.name}}"\n'
-        'echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin\n'
-        "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
-        '  sed -i "s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|" '
-        "docker-compose.yml docker-compose.yaml 2>/dev/null || true\n"
-        "  docker compose build\n"
-        "  docker compose push\n"
-        "else\n"
-        '  docker build -t "$DOCKER_USERNAME/$REPO_NAME:${{github.sha}}" .\n'
-        '  docker push "$DOCKER_USERNAME/$REPO_NAME:${{github.sha}}"\n'
-        "fi\n"
-    ),
-}
+        'echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin\n' + push_body
+    )
+    return {
+        "name": "Docker login & push",
+        "env": {
+            "DOCKER_TOKEN": "${{ secrets.DOCKER_TOKEN }}",
+            "DOCKER_USERNAME": "${{ secrets.DOCKER_USERNAME }}",
+        },
+        "run": run,
+    }
 
 
 def filter_steps(
@@ -217,6 +223,7 @@ def filter_steps(
     *,
     docker_enabled: bool = True,
     docker_push_enabled: bool = True,
+    compose_enabled: bool = False,
 ) -> dict:
     """Filter / inject steps in the CI dict based on Pipeline Configuration.
 
@@ -224,11 +231,13 @@ def filter_steps(
 
     Rules:
     * ``docker_enabled=False`` → remove ALL Docker steps (build + push).
-    * ``docker_enabled=True``  → ensure a Docker build step exists
-      (inject the default if missing).
+    * ``docker_enabled=True``  → **replace** any existing Docker build step
+      with one matching the current ``compose_enabled`` flag (or inject if
+      missing).
     * ``docker_push_enabled=False`` → remove push/login steps.
-    * ``docker_push_enabled=True``  → ensure a Docker push step exists
-      (inject the default if missing).
+    * ``docker_push_enabled=True``  → **replace** any existing Docker push
+      step with one matching the current ``compose_enabled`` flag (or inject
+      if missing).
     """
     ci = copy.deepcopy(ci)
     for _job_name, job in (ci.get("jobs") or {}).items():
@@ -236,28 +245,27 @@ def filter_steps(
         if not steps:
             continue
 
-        # ── Remove unwanted steps ─────────────────────────────────────
+        # ── Remove unwanted / stale Docker steps ──────────────────────
         filtered: list[dict] = []
         for step in steps:
             if not docker_enabled and _is_docker_related_step(step):
                 continue
             if docker_enabled and not docker_push_enabled and _is_docker_push_step(step):
                 continue
+            # When Docker IS enabled, strip existing Docker steps so we
+            # can re-inject fresh ones matching the current compose flag.
+            if docker_enabled and _is_docker_related_step(step):
+                continue
             filtered.append(step)
 
-        # ── Inject missing steps when Docker IS enabled ───────────────
+        # ── Inject correct Docker steps ───────────────────────────────
         if docker_enabled:
-            has_build = any(_is_docker_build_step(s) for s in filtered)
-            if not has_build:
-                # Insert before "Deploy" step if present, else append
-                idx = _find_deploy_index(filtered)
-                filtered.insert(idx, copy.deepcopy(_DEFAULT_DOCKER_BUILD_STEP))
+            idx = _find_deploy_index(filtered)
+            filtered.insert(idx, _make_docker_build_step(compose_enabled))
 
             if docker_push_enabled:
-                has_push = any(_is_docker_push_step(s) for s in filtered)
-                if not has_push:
-                    idx = _find_deploy_index(filtered)
-                    filtered.insert(idx, copy.deepcopy(_DEFAULT_DOCKER_PUSH_STEP))
+                idx = _find_deploy_index(filtered)
+                filtered.insert(idx, _make_docker_push_step(compose_enabled))
 
         job["steps"] = filtered
     return ci
@@ -361,6 +369,7 @@ def adapt_template(
     *,
     docker_enabled: bool = True,
     docker_push_enabled: bool = True,
+    compose_enabled: bool = False,
 ) -> str:
     """Adapt a cached CI template dict to fit a new repository.
 
@@ -371,7 +380,8 @@ def adapt_template(
     Adaptations applied (all at key/value level):
     * ``name`` → ``<repo_name> Pipeline``
     * ``python-version`` / ``node-version`` → scan-detected versions
-    * Steps filtered by ``docker_enabled`` / ``docker_push_enabled``
+    * Steps filtered by ``docker_enabled`` / ``docker_push_enabled`` /
+      ``compose_enabled``
     """
     ci = copy.deepcopy(ci_dict)
 
@@ -389,7 +399,12 @@ def adapt_template(
         _set_node_version(ci, scan_node)
 
     # ── Filter steps based on Docker config ───────────────────────────────
-    ci = filter_steps(ci, docker_enabled=docker_enabled, docker_push_enabled=docker_push_enabled)
+    ci = filter_steps(
+        ci,
+        docker_enabled=docker_enabled,
+        docker_push_enabled=docker_push_enabled,
+        compose_enabled=compose_enabled,
+    )
 
     return _dict_to_yaml(ci)
 
