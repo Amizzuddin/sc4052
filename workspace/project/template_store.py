@@ -177,10 +177,11 @@ def _is_docker_related_step(step: dict) -> bool:
 _DEFAULT_DOCKER_BUILD_STEP: dict = {
     "name": "Docker build",
     "run": (
+        'REPO_NAME="${{github.event.repository.name}}"\n'
         "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
         "  docker compose build\n"
         "elif [ -f Dockerfile ]; then\n"
-        "  docker build -t app:latest .\n"
+        '  docker build -t "$REPO_NAME:latest" .\n'
         "fi\n"
     ),
 }
