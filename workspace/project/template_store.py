@@ -137,6 +137,74 @@ def _write_manifest(key: str, entry: dict[str, Any]) -> None:
 
 # ── Dict-level adaptation helpers ─────────────────────────────────────────────
 
+# Keywords used to classify steps by purpose.
+_DOCKER_BUILD_KEYWORDS = ("docker build", "docker compose build", "docker-compose build")
+_DOCKER_PUSH_KEYWORDS = ("docker login", "docker push", "docker compose push", "docker-compose push")
+_DOCKER_NAME_KEYWORDS = ("docker",)  # step name substrings
+
+
+def _step_text(step: dict) -> str:
+    """Return a lowercase blob of the step's ``run:`` + ``name:`` text."""
+    parts = []
+    if step.get("name"):
+        parts.append(str(step["name"]))
+    if step.get("run"):
+        parts.append(str(step["run"]))
+    return "\n".join(parts).lower()
+
+
+def _is_docker_build_step(step: dict) -> bool:
+    """True if the step is a Docker *build* step (not login/push)."""
+    txt = _step_text(step)
+    if any(kw in txt for kw in _DOCKER_BUILD_KEYWORDS):
+        # Make sure it isn't *also* the login & push step
+        if not any(kw in txt for kw in _DOCKER_PUSH_KEYWORDS):
+            return True
+    return False
+
+
+def _is_docker_push_step(step: dict) -> bool:
+    """True if the step contains docker login / push commands."""
+    txt = _step_text(step)
+    return any(kw in txt for kw in _DOCKER_PUSH_KEYWORDS)
+
+
+def _is_docker_related_step(step: dict) -> bool:
+    """True if the step is docker-build OR docker-push."""
+    return _is_docker_build_step(step) or _is_docker_push_step(step)
+
+
+def filter_steps(
+    ci: dict,
+    *,
+    docker_enabled: bool = True,
+    docker_push_enabled: bool = True,
+) -> dict:
+    """Filter steps in the CI dict based on Pipeline Configuration flags.
+
+    Operates on a **deep copy** — the original dict is never mutated.
+
+    Rules:
+    * ``docker_enabled=False`` → remove ALL Docker steps (build + push).
+    * ``docker_enabled=True, docker_push_enabled=False`` → keep build, remove
+      push/login steps.
+    * ``docker_enabled=True, docker_push_enabled=True`` → keep everything.
+    """
+    ci = copy.deepcopy(ci)
+    for _job_name, job in (ci.get("jobs") or {}).items():
+        steps = job.get("steps")
+        if not steps:
+            continue
+        filtered: list[dict] = []
+        for step in steps:
+            if not docker_enabled and _is_docker_related_step(step):
+                continue
+            if docker_enabled and not docker_push_enabled and _is_docker_push_step(step):
+                continue
+            filtered.append(step)
+        job["steps"] = filtered
+    return ci
+
 
 def _set_pipeline_name(ci: dict, repo_name: str) -> None:
     """Update the top-level ``name`` field."""
@@ -230,6 +298,9 @@ def adapt_template(
     ci_dict: dict,
     scan: dict,
     repo_name: str | None = None,
+    *,
+    docker_enabled: bool = True,
+    docker_push_enabled: bool = True,
 ) -> str:
     """Adapt a cached CI template dict to fit a new repository.
 
@@ -239,8 +310,8 @@ def adapt_template(
 
     Adaptations applied (all at key/value level):
     * ``name`` → ``<repo_name> Pipeline``
-    * ``python-version`` in ``with:`` blocks → scan-detected version
-    * ``node-version`` in ``with:`` blocks → scan-detected version
+    * ``python-version`` / ``node-version`` → scan-detected versions
+    * Steps filtered by ``docker_enabled`` / ``docker_push_enabled``
     """
     ci = copy.deepcopy(ci_dict)
 
@@ -256,6 +327,9 @@ def adapt_template(
     scan_node = scan.get("node_version")
     if scan_node:
         _set_node_version(ci, scan_node)
+
+    # ── Filter steps based on Docker config ───────────────────────────────
+    ci = filter_steps(ci, docker_enabled=docker_enabled, docker_push_enabled=docker_push_enabled)
 
     return _dict_to_yaml(ci)
 

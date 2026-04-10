@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 1:07:05 am                            #
+#  Last Modified: Friday April 10th 2026 3:36:31 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1319,8 +1319,16 @@ def generate_pipeline(
         cached = get_template(langs, platform)
         if cached and cached.get("ci_yaml"):
             # cached["ci_yaml"] is a parsed dict; adapt returns YAML string
-            result = adapt_template(cached["ci_yaml"], scan, repo_name=repo_name)
-            has_compose = "docker-compose" in scan.get("deploy_targets", [])
+            deploy = scan.get("deploy_targets", [])
+            docker_enabled = "docker" in deploy or "docker-compose" in deploy
+            result = adapt_template(
+                cached["ci_yaml"],
+                scan,
+                repo_name=repo_name,
+                docker_enabled=docker_enabled,
+                docker_push_enabled=docker_push_enabled,
+            )
+            has_compose = "docker-compose" in deploy
             result = _patch_docker_steps(result, has_compose=has_compose)
             if not docker_push_enabled:
                 result = _strip_docker_push_steps(result)
