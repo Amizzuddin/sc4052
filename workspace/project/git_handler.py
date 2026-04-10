@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 11:10:06 am                           #
+#  Last Modified: Friday April 10th 2026 11:15:06 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -399,18 +399,18 @@ def _run_precommit_on_files(clone_path: str, rel_files: list[str]) -> None:
 def _run_precommit_local(clone_path: str) -> None:
     """Format every file in *clone_path* so pre-commit in CI passes cleanly.
 
-    Strategy (belt-and-suspenders):
-    1. Fix end-of-file newlines ourselves (matches ``end-of-file-fixer``).
-    2. Run ``black`` and ``isort`` **directly** on every ``*.py`` file —
-       this is the guaranteed formatter pass that does NOT depend on
-       pre-commit hook environments being downloadable inside the
-       container.
-    3. *Then* attempt ``pre-commit run --all-files`` (2-pass) as a
-       best-effort catch-all for any remaining hooks.
+    Uses the cloned repo's own ``.pre-commit-config.yaml`` via
+    ``pre-commit run --all-files`` (2-pass):
+      Pass 1 — hooks auto-fix files (exit 1 = expected).
+      Pass 2 — verify stability (exit 0 = clean).
+
+    A generous timeout (300 s per pass) is given because the very first
+    run needs to download and install every hook environment.
     """
     repo_root = Path(clone_path)
 
-    # ── 1. end-of-file newlines ──────────────────────────────────────────
+    # Fix end-of-file newlines on every tracked file first —
+    # matches the end-of-file-fixer hook so it becomes a no-op.
     for p in repo_root.rglob("*"):
         if p.is_file() and ".git" not in p.parts:
             try:
@@ -418,71 +418,47 @@ def _run_precommit_local(clone_path: str) -> None:
             except Exception:
                 pass
 
-    # ── 2. Direct black + isort (guaranteed, no hook env needed) ─────────
-    py_files = [str(p) for p in repo_root.rglob("*.py") if ".git" not in p.parts]
-    if py_files:
-        black_bin = shutil.which("black")
-        if black_bin:
-            r = subprocess.run(
-                [black_bin, "--quiet", *py_files],
-                cwd=clone_path,
-                capture_output=True,
-                text=True,
-            )
-            if r.returncode != 0:
-                print(
-                    f"[cicd-gen] black warning (exit {r.returncode}):\n{r.stderr}",
-                    file=sys.stderr,
-                )
-        isort_bin = shutil.which("isort")
-        if isort_bin:
-            r = subprocess.run(
-                [isort_bin, "--profile", "black", "--quiet", *py_files],
-                cwd=clone_path,
-                capture_output=True,
-                text=True,
-            )
-            if r.returncode != 0:
-                print(
-                    f"[cicd-gen] isort warning (exit {r.returncode}):\n{r.stderr}",
-                    file=sys.stderr,
-                )
-
-    # Re-fix newlines after formatters may have added trailing whitespace
-    for p in repo_root.rglob("*"):
-        if p.is_file() and ".git" not in p.parts:
-            try:
-                _ensure_trailing_newline(p)
-            except Exception:
-                pass
-
-    # ── 3. Best-effort pre-commit (catches any remaining hooks) ──────────
     pre_commit_bin = shutil.which("pre-commit")
     if not pre_commit_bin:
+        print("[cicd-gen] pre-commit not found on PATH — skipping", file=sys.stderr)
         return
 
-    def _run_once():
-        return subprocess.run(
-            [pre_commit_bin, "run", "--all-files"],
-            cwd=clone_path,
-            capture_output=True,
-            text=True,
-        )
+    def _run_once(label: str = ""):
+        try:
+            r = subprocess.run(
+                [pre_commit_bin, "run", "--all-files"],
+                cwd=clone_path,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                f"[cicd-gen] pre-commit {label} timed out (300 s)",
+                file=sys.stderr,
+            )
+            return None
+        # Log stdout so we can see which hooks ran / failed
+        if r.stdout:
+            print(f"[cicd-gen] pre-commit {label} stdout:\n{r.stdout}", file=sys.stderr)
+        if r.returncode not in (0, 1) and r.stderr:
+            print(f"[cicd-gen] pre-commit {label} stderr:\n{r.stderr}", file=sys.stderr)
+        return r
 
-    r1 = _run_once()
-    if r1.returncode == 0:
-        return  # already clean on first pass
+    r1 = _run_once("pass-1")
+    if r1 is None or r1.returncode == 0:
+        return  # timed-out or already clean
     if r1.returncode == 1:
         # Formatters modified files — run again to verify stability
-        r2 = _run_once()
-        if r2.returncode not in (0, 1):
+        r2 = _run_once("pass-2")
+        if r2 is not None and r2.returncode not in (0, 1):
             print(
-                f"[cicd-gen] pre-commit warning (pass 2, exit {r2.returncode}):\n{r2.stderr}",
+                f"[cicd-gen] pre-commit warning (pass 2, exit {r2.returncode})",
                 file=sys.stderr,
             )
     else:
         print(
-            f"[cicd-gen] pre-commit warning (exit {r1.returncode}):\n{r1.stderr}",
+            f"[cicd-gen] pre-commit warning (exit {r1.returncode})",
             file=sys.stderr,
         )
 

@@ -3,6 +3,5 @@ coverage
 cpplint
 pandas-stubs
 plotly-stubs
-pre-commit
 pytest
 types-networkx

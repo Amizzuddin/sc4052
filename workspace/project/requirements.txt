@@ -1,6 +1,5 @@
 # cicd-gen requirements
 anthropic>=0.25.0        # Claude API SDK (paid tier)
-black>=24.0              # Code formatting (used by self-heal formatter)
 click>=8.1.0             # CLI framework
 dash>=2.17.0             # Dash web UI
 dash-bootstrap-components>=1.6.0  # Bootstrap styling for Dash
@@ -8,7 +7,7 @@ fastapi>=0.111.0         # Web service layer (optional, for SaaS mode)
 gitpython>=3.1.40        # Git repo interaction
 google-generativeai>=0.8.0  # Gemini Flash — free tier (1 500 req/day)
 groq>=0.10.0             # Groq/Llama — free tier (14 400 req/day)
-isort>=5.12.0            # Import sorting (used by self-heal formatter)
+pre-commit>=3.0.0        # Runs repo hooks locally during self-heal
 python-dotenv>=1.0.0     # Load .env files for local development
 PyYAML>=6.0              # YAML validation
 rich>=13.0.0             # Optional: rich terminal output
