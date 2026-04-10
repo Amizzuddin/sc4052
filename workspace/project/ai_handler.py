@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 10:03:05 am                           #
+#  Last Modified: Friday April 10th 2026 10:42:01 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -71,26 +71,61 @@ _VALID_JSON_ESCAPES = frozenset('"\\bfnrtu/')
 
 
 def _repair_llm_json(text: str) -> dict:
-    """Parse *text* as JSON, repairing invalid backslash escapes first.
+    """Parse *text* as JSON, repairing common LLM output problems.
 
-    LLMs sometimes embed raw CI log snippets that contain ANSI escape codes
-    (``\\e``, ``\\033``) or Windows-style paths (``C:\\Users``).  These
-    produce ``Invalid \\escape`` errors in ``json.loads``.  We fix them by
-    double-escaping any ``\\X`` where ``X`` is not a valid JSON escape char.
-    ``strict=False`` is used to tolerate control characters in strings.
+    Handles:
+    1. Invalid backslash escapes (``\\e``, ``\\033`` from ANSI codes)
+    2. Truncated output (LLM hit max_tokens mid-string)
+    3. Unescaped control characters
+    4. Structural issues (missing closing braces/quotes)
+
+    Falls back to regex extraction of ``ci_yaml`` and ``dockerfile`` keys
+    when ``json.loads`` cannot recover the structure.
     """
+    # ── Attempt 1: direct parse ──────────────────────────────────────────
     try:
         return json.loads(text, strict=False)
     except json.JSONDecodeError:
-        # Repair: replace \X with \\X when X is not a legal JSON escape
-        def _fix_escape(m: re.Match) -> str:
-            ch = m.group(1)
-            if ch in _VALID_JSON_ESCAPES:
-                return m.group(0)  # keep valid escapes
-            return "\\\\" + ch  # double the backslash
+        pass
 
-        repaired = re.sub(r"\\(.)", _fix_escape, text)
+    # ── Attempt 2: repair invalid backslash escapes ──────────────────────
+    def _fix_escape(m: re.Match) -> str:
+        ch = m.group(1)
+        if ch in _VALID_JSON_ESCAPES:
+            return m.group(0)
+        return "\\\\" + ch
+
+    repaired = re.sub(r"\\(.)", _fix_escape, text)
+    try:
         return json.loads(repaired, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    # ── Attempt 3: regex extraction (handles truncation / structural breakage) ─
+    result: dict = {}
+    for key in ("ci_yaml", "dockerfile"):
+        # Match  "key": "..." — the value may be truncated (no closing quote).
+        # First try a properly closed string, then fall back to unclosed.
+        pat_closed = rf'"{key}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+        pat_unclosed = rf'"{key}"\s*:\s*"((?:[^"\\]|\\.)*)'
+        m = re.search(pat_closed, repaired, re.DOTALL)
+        if not m:
+            m = re.search(pat_unclosed, repaired, re.DOTALL)
+        if m:
+            val = m.group(1)
+            # Unescape JSON string escapes
+            try:
+                val = json.loads(f'"{val}"')
+            except Exception:
+                val = val.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"').replace("\\\\", "\\")
+            result[key] = val
+
+    # source_files is a nested object — skip regex extraction for it
+    # (auto-formatters handle most source issues anyway)
+
+    if result:
+        return result
+    raise json.JSONDecodeError("Could not extract any keys from LLM response", text, 0)
 
 
 import git
@@ -646,7 +681,7 @@ def _watch_ci_and_heal(
 
             fix_prompt = _build_ci_fix_prompt(error_log, current_yaml, current_dockerfile, platform)
             try:
-                nr_raw = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=3000)
+                nr_raw = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=4096)
                 nr_raw = _strip_markdown_fences(nr_raw)
                 nr_fix = _repair_llm_json(nr_raw)
             except Exception as e:
@@ -843,7 +878,7 @@ def _watch_ci_and_heal(
             return
         fix_prompt = _build_ci_fix_prompt(error_log, current_yaml, current_dockerfile, platform)
         try:
-            raw_fix = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=3000)
+            raw_fix = _call_llm(fix_prompt, provider=provider, api_key=api_key, max_tokens=4096)
             raw_fix = _strip_markdown_fences(raw_fix)
             fix_data: dict = _repair_llm_json(raw_fix)
         except Exception as e:
