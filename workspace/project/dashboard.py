@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 3:25:46 am                            #
+#  Last Modified: Friday April 10th 2026 3:44:16 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1306,6 +1306,14 @@ def generate_pipeline_cb(
         scan = dict(scan)
         scan["deploy_targets"] = list(scan.get("deploy_targets") or []) + ["docker-compose"]
 
+    # Strip Docker targets when the user disabled Docker in the UI
+    if not wants_docker:
+        current = scan.get("deploy_targets") or []
+        stripped = [t for t in current if t not in ("docker", "docker-compose")]
+        if stripped != list(current):
+            scan = dict(scan)
+            scan["deploy_targets"] = stripped
+
     # ── Generate Dockerfile / compose content ────────────────────────────────────────
     dockerfile_content: str | None = None
     compose_content: str | None = None
@@ -1395,6 +1403,7 @@ def generate_pipeline_cb(
             scan,
             platform,
             full_extras,
+            docker_enabled=wants_docker,
             docker_push_enabled=wants_docker_push,
             api_key=resolved_api_key,
             provider=provider,

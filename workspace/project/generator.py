@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 3:36:31 am                            #
+#  Last Modified: Friday April 10th 2026 3:43:24 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -1281,6 +1281,7 @@ def generate_pipeline(
     scan: dict,
     platform: str = "github-actions",
     extra_requirements: str = "",
+    docker_enabled: bool = False,
     docker_push_enabled: bool = False,
     api_key: str | None = None,
     provider: str = "gemini",
@@ -1298,6 +1299,7 @@ def generate_pipeline(
         scan:                    Output from scanner.scan_repo()
         platform:                Target CI/CD platform
         extra_requirements:      Full extra requirements (system + user)
+        docker_enabled:          Whether Docker build steps are wanted
         docker_push_enabled:     Whether to include Docker login + push steps
         user_extra_requirements: Only the user-typed extra requirements
                                  (used for template cache bypass decision)
@@ -1319,8 +1321,6 @@ def generate_pipeline(
         cached = get_template(langs, platform)
         if cached and cached.get("ci_yaml"):
             # cached["ci_yaml"] is a parsed dict; adapt returns YAML string
-            deploy = scan.get("deploy_targets", [])
-            docker_enabled = "docker" in deploy or "docker-compose" in deploy
             result = adapt_template(
                 cached["ci_yaml"],
                 scan,
@@ -1328,6 +1328,7 @@ def generate_pipeline(
                 docker_enabled=docker_enabled,
                 docker_push_enabled=docker_push_enabled,
             )
+            deploy = scan.get("deploy_targets", [])
             has_compose = "docker-compose" in deploy
             result = _patch_docker_steps(result, has_compose=has_compose)
             if not docker_push_enabled:
