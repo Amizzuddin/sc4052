@@ -1,3 +1,18 @@
+################################################################################
+#  Filename:      project/dockerfile_templates.py                              #
+#  Project:       SC4079 Cloud Computing                                       #
+#  Created Date:  Friday, April 10th 2026, 6:07:13 am                          #
+#  Author:        Amizzuddin Amin Chan                                         #
+#  Description:   <<ADD Description>>                                          #
+#  --------------------------------------------------------------------------- #
+#  Last Modified: Friday April 10th 2026 6:25:53 am                            #
+#  Modified By:   Amizzuddin Amin Chan                                         #
+#  --------------------------------------------------------------------------- #
+#  HISTORY:                                                                    #
+#  Date         By    Comments                                                 #
+#  ----------   ---   -------------------------------------------------------- #
+################################################################################
+
 """Dockerfile template system — JSON-based, composable by language.
 
 Builds Dockerfiles by combining per-language blocks based on the

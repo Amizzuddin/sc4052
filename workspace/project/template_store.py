@@ -176,7 +176,13 @@ def _is_docker_related_step(step: dict) -> bool:
 
 _DEFAULT_DOCKER_BUILD_STEP: dict = {
     "name": "Docker build",
-    "run": ("if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; " "then docker compose build; fi\n"),
+    "run": (
+        "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
+        "  docker compose build\n"
+        "elif [ -f Dockerfile ]; then\n"
+        "  docker build -t app:latest .\n"
+        "fi\n"
+    ),
 }
 
 _DEFAULT_DOCKER_PUSH_STEP: dict = {
