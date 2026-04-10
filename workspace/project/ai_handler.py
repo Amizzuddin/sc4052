@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 9:32:45 am                            #
+#  Last Modified: Friday April 10th 2026 10:03:05 am                           #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -94,7 +94,7 @@ def _repair_llm_json(text: str) -> dict:
 
 
 import git
-from git_handler import _ensure_trailing_newline, _run_precommit_on_files
+from git_handler import _ensure_trailing_newline, _run_precommit_local, _run_precommit_on_files
 from writer import write_config
 
 # ── CI watch state (shared with dashboard callbacks) ─────────────────────────
@@ -449,8 +449,20 @@ FAILURE LOG (last ~8000 chars):
 Return ONLY a JSON object with these keys (omit a key if that file does not need changing):
 {{
   "ci_yaml": "<complete fixed YAML content>",
-  "dockerfile": "<complete fixed Dockerfile content>"
+  "dockerfile": "<complete fixed Dockerfile content>",
+  "source_files": {{
+    "<relative/path/to/file>": "<complete fixed file content>",
+    ...
+  }}
 }}
+Notes on "source_files":
+- Only include files that the error log proves need a CODE-LEVEL fix that
+  automatic formatters (black, isort, end-of-file-fixer) cannot handle
+  (e.g. unused imports reported by flake8, type errors, missing modules).
+- Formatters will run automatically — do NOT fix whitespace / trailing-newline /
+  import-order issues; those are handled.
+- Each value must be the COMPLETE file content (not a diff).
+- Omit "source_files" entirely if no source changes are needed.
 
 CRITICAL RULES for the fixed YAML:
 - GitHub Actions expressions MUST use exactly two braces with NO spaces: ${{{{ github.sha }}}}
@@ -654,8 +666,9 @@ def _watch_ci_and_heal(
 
             _set_step(llm_idx, "passed")
 
-            # ── dedup: skip if LLM returned the same YAML ──
-            if nr_fix.get("ci_yaml"):
+            # ── dedup: skip if LLM returned the same YAML and no source fixes ──
+            _has_source_fixes = bool(nr_fix.get("source_files"))
+            if nr_fix.get("ci_yaml") and not _has_source_fixes:
                 _nr_candidate = _sanitize_expressions(nr_fix["ci_yaml"], platform)
                 _nr_candidate = _sanitize_runner(_nr_candidate, platform)
                 _nr_candidate = _fix_shell_if_fi(_nr_candidate)
@@ -678,24 +691,31 @@ def _watch_ci_and_heal(
                     df_p = Path(clone_path) / "Dockerfile"
                     df_p.write_text(nr_fix["dockerfile"])
                     nr_changed.append("Dockerfile")
+                for sf_path, sf_content in (nr_fix.get("source_files") or {}).items():
+                    sf_full = Path(clone_path) / sf_path
+                    sf_full.parent.mkdir(parents=True, exist_ok=True)
+                    sf_full.write_text(sf_content)
+                    nr_changed.append(sf_path)
             except Exception as e:
                 _set_step(push_idx, "failed")
                 _log(f"⚠ Could not write fix files: {e}. Retrying...")
                 _cancel.wait(15)
                 continue
 
-            if not nr_changed:
+            # Run pre-commit on ALL repo files, not just changed CI files.
+            # CI often fails because source files need formatting (black,
+            # end-of-file-fixer, isort).  Running --all-files auto-fixes them
+            # so `git add .` picks up everything.
+            _run_precommit_local(clone_path)
+
+            # Check for ANY changes (LLM files + pre-commit auto-fixes)
+            repo_obj.git.add(".")
+            if not repo_obj.is_dirty(index=True, working_tree=True) and not repo_obj.git.diff("--cached"):
                 _set_step(push_idx, "skipped")
-                _log("⚠ LLM returned no file changes. Retrying...")
+                _log("⚠ No effective changes after pre-commit. Retrying...")
                 _cancel.wait(15)
                 continue
-
-            for rel_path in nr_changed:
-                try:
-                    _ensure_trailing_newline(Path(clone_path) / rel_path)
-                except Exception:
-                    pass
-            _run_precommit_on_files(clone_path, nr_changed)
+            _run_precommit_local(clone_path)
 
             if _cancelled():
                 _finish("cancelled")
@@ -704,19 +724,23 @@ def _watch_ci_and_heal(
             try:
                 origin = repo_obj.remote("origin")
                 origin.set_url(f"https://{token}@github.com/{owner}/{repo_name}.git")
-                try:
-                    repo_obj.git.fetch("origin", branch_name)
-                    repo_obj.git.rebase(f"origin/{branch_name}")
-                except Exception:
-                    pass
                 _backups = Path(clone_path) / ".cicd-gen-backups"
                 if _backups.exists():
                     import shutil as _shutil
 
                     _shutil.rmtree(_backups, ignore_errors=True)
                 repo_obj.git.add(".")
-                repo_obj.index.commit(f"ci(fix): auto-fix attempt {attempt} (no-run) via cicd-gen")
-                origin.push(refspec=f"{branch_name}:{branch_name}")
+                repo_obj.git.commit("-m", f"ci(fix): auto-fix attempt {attempt} (no-run) via cicd-gen", "--allow-empty")
+                # Rebase onto remote so the push is fast-forward
+                try:
+                    repo_obj.git.fetch("origin", branch_name)
+                    repo_obj.git.rebase(f"origin/{branch_name}")
+                except Exception:
+                    try:
+                        repo_obj.git.rebase("--abort")
+                    except Exception:
+                        pass
+                origin.push(refspec=f"{branch_name}:{branch_name}", force=True)
                 _set_step(push_idx, "passed")
                 _log(f"🚀 Fix pushed ({', '.join(nr_changed)}). Waiting for new run...")
             except Exception as e:
@@ -840,8 +864,9 @@ def _watch_ci_and_heal(
         # Apply fixes & push
         _set_step(llm_idx, "passed")
 
-        # ── dedup: skip if LLM returned the same YAML ──
-        if fix_data.get("ci_yaml"):
+        # ── dedup: skip if LLM returned the same YAML and no source fixes ──
+        _has_source_fixes = bool(fix_data.get("source_files"))
+        if fix_data.get("ci_yaml") and not _has_source_fixes:
             _candidate = _sanitize_expressions(fix_data["ci_yaml"], platform)
             _candidate = _sanitize_runner(_candidate, platform)
             _candidate = _fix_shell_if_fi(_candidate)
@@ -864,44 +889,41 @@ def _watch_ci_and_heal(
                 df_p = Path(clone_path) / "Dockerfile"
                 df_p.write_text(fix_data["dockerfile"])
                 files_changed.append("Dockerfile")
+            for sf_path, sf_content in (fix_data.get("source_files") or {}).items():
+                sf_full = Path(clone_path) / sf_path
+                sf_full.parent.mkdir(parents=True, exist_ok=True)
+                sf_full.write_text(sf_content)
+                files_changed.append(sf_path)
         except Exception as e:
             _set_step(push_idx, "failed")
             _log(f"⚠ Could not write fix files: {e}.")
             _finish("error")
             return
 
-        if not files_changed:
+        # Run pre-commit on ALL repo files, not just the changed CI files.
+        # CI pre-commit runs --all-files, so source-code formatting issues
+        # (black, end-of-file-fixer, isort) must also be fixed here.
+        # The 2-pass _run_precommit_local auto-fixes and then verifies;
+        # `git add .` below will pick up every modified file.
+        _run_precommit_local(clone_path)
+
+        # Check for ANY changes (LLM files + pre-commit auto-fixes)
+        repo_obj.git.add(".")
+        if not repo_obj.is_dirty(index=True, working_tree=True) and not repo_obj.git.diff("--cached"):
             _set_step(push_idx, "skipped")
-            _log("⚠ LLM returned no file changes. Stopping.")
+            _log("⚠ No effective changes after pre-commit. Stopping.")
             _finish("error")
             return
-
-        # Ensure every fixed file has a trailing newline, then run a focused
-        # pre-commit pass on changed files before committing.  This prevents
-        # the end-of-file-fixer hook from failing on CI for the same reason
-        # it failed on the original commit.
-        for rel_path in files_changed:
-            try:
-                _ensure_trailing_newline(Path(clone_path) / rel_path)
-            except Exception:
-                pass
-        _run_precommit_on_files(clone_path, files_changed)
 
         if _cancelled():
             _finish("cancelled")
             return
 
         try:
-            # Rebase onto the remote before committing so the push is always
-            # fast-forward (avoids "failed to push some refs" if the remote
-            # branch moved since our last push).
+            # Commit first while the index is clean except for our changes,
+            # then rebase onto remote so the push is fast-forward.
             origin = repo_obj.remote("origin")
             origin.set_url(f"https://{token}@github.com/{owner}/{repo_name}.git")
-            try:
-                repo_obj.git.fetch("origin", branch_name)
-                repo_obj.git.rebase(f"origin/{branch_name}")
-            except Exception:
-                pass  # ignore if branch doesn't exist on remote yet
             # Remove leftover backup dir so it is never committed
             _backups = Path(clone_path) / ".cicd-gen-backups"
             if _backups.exists():
@@ -909,8 +931,17 @@ def _watch_ci_and_heal(
 
                 _shutil.rmtree(_backups, ignore_errors=True)
             repo_obj.git.add(".")
-            repo_obj.index.commit(f"ci(fix): auto-fix attempt {attempt} via cicd-gen")
-            origin.push(refspec=f"{branch_name}:{branch_name}")
+            repo_obj.git.commit("-m", f"ci(fix): auto-fix attempt {attempt} via cicd-gen", "--allow-empty")
+            # Rebase onto remote so the push is fast-forward
+            try:
+                repo_obj.git.fetch("origin", branch_name)
+                repo_obj.git.rebase(f"origin/{branch_name}")
+            except Exception:
+                try:
+                    repo_obj.git.rebase("--abort")
+                except Exception:
+                    pass
+            origin.push(refspec=f"{branch_name}:{branch_name}", force=True)
             _set_step(push_idx, "passed")
             _log(f"🚀 Fix pushed ({', '.join(files_changed)}). Waiting for new run...")
         except Exception as e:
