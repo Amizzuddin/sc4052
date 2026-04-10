@@ -35,8 +35,6 @@ class TemplateEntry(TypedDict, total=False):
     """On-disk JSON structure for a cached template."""
 
     ci_yaml: dict  # parsed YAML dict (not a raw string)
-    dockerfile: str
-    docker_compose: str
 
 
 # ── YAML helpers ──────────────────────────────────────────────────────────────
@@ -174,27 +172,64 @@ def _is_docker_related_step(step: dict) -> bool:
     return _is_docker_build_step(step) or _is_docker_push_step(step)
 
 
+# ── Default Docker steps (injected when the template lacks them) ──────────────
+
+_DEFAULT_DOCKER_BUILD_STEP: dict = {
+    "name": "Docker build",
+    "run": ("if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; " "then docker compose build; fi\n"),
+}
+
+_DEFAULT_DOCKER_PUSH_STEP: dict = {
+    "name": "Docker login & push",
+    "env": {
+        "DOCKER_TOKEN": "${{ secrets.DOCKER_TOKEN }}",
+        "DOCKER_USERNAME": "${{ secrets.DOCKER_USERNAME }}",
+    },
+    "run": (
+        'if [ -z "$DOCKER_TOKEN" ]; then\n'
+        '  echo "DOCKER_TOKEN not set \u2014 skipping Docker push"\n'
+        "  exit 0\n"
+        "fi\n"
+        'REPO_NAME="${{github.event.repository.name}}"\n'
+        'echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin\n'
+        "if [ -f docker-compose.yml ] || [ -f docker-compose.yaml ]; then\n"
+        '  sed -i "s|image:.*|image: $DOCKER_USERNAME/$REPO_NAME:latest|" '
+        "docker-compose.yml docker-compose.yaml 2>/dev/null || true\n"
+        "  docker compose build\n"
+        "  docker compose push\n"
+        "else\n"
+        '  docker build -t "$DOCKER_USERNAME/$REPO_NAME:${{github.sha}}" .\n'
+        '  docker push "$DOCKER_USERNAME/$REPO_NAME:${{github.sha}}"\n'
+        "fi\n"
+    ),
+}
+
+
 def filter_steps(
     ci: dict,
     *,
     docker_enabled: bool = True,
     docker_push_enabled: bool = True,
 ) -> dict:
-    """Filter steps in the CI dict based on Pipeline Configuration flags.
+    """Filter / inject steps in the CI dict based on Pipeline Configuration.
 
     Operates on a **deep copy** — the original dict is never mutated.
 
     Rules:
     * ``docker_enabled=False`` → remove ALL Docker steps (build + push).
-    * ``docker_enabled=True, docker_push_enabled=False`` → keep build, remove
-      push/login steps.
-    * ``docker_enabled=True, docker_push_enabled=True`` → keep everything.
+    * ``docker_enabled=True``  → ensure a Docker build step exists
+      (inject the default if missing).
+    * ``docker_push_enabled=False`` → remove push/login steps.
+    * ``docker_push_enabled=True``  → ensure a Docker push step exists
+      (inject the default if missing).
     """
     ci = copy.deepcopy(ci)
     for _job_name, job in (ci.get("jobs") or {}).items():
         steps = job.get("steps")
         if not steps:
             continue
+
+        # ── Remove unwanted steps ─────────────────────────────────────
         filtered: list[dict] = []
         for step in steps:
             if not docker_enabled and _is_docker_related_step(step):
@@ -202,8 +237,32 @@ def filter_steps(
             if docker_enabled and not docker_push_enabled and _is_docker_push_step(step):
                 continue
             filtered.append(step)
+
+        # ── Inject missing steps when Docker IS enabled ───────────────
+        if docker_enabled:
+            has_build = any(_is_docker_build_step(s) for s in filtered)
+            if not has_build:
+                # Insert before "Deploy" step if present, else append
+                idx = _find_deploy_index(filtered)
+                filtered.insert(idx, copy.deepcopy(_DEFAULT_DOCKER_BUILD_STEP))
+
+            if docker_push_enabled:
+                has_push = any(_is_docker_push_step(s) for s in filtered)
+                if not has_push:
+                    idx = _find_deploy_index(filtered)
+                    filtered.insert(idx, copy.deepcopy(_DEFAULT_DOCKER_PUSH_STEP))
+
         job["steps"] = filtered
     return ci
+
+
+def _find_deploy_index(steps: list[dict]) -> int:
+    """Return the index of the first 'deploy' step, or len(steps)."""
+    for i, s in enumerate(steps):
+        name = (s.get("name") or "").lower()
+        if "deploy" in name:
+            return i
+    return len(steps)
 
 
 def _set_pipeline_name(ci: dict, repo_name: str) -> None:
@@ -265,18 +324,12 @@ def save_template(
     platform: str,
     *,
     ci_yaml: str | None = None,
-    dockerfile: str | None = None,
-    docker_compose: str | None = None,
 ) -> None:
     """Persist (or update) a template for the given language + platform.
 
     ``ci_yaml`` is accepted as a YAML **string** (the raw output from LLM
     or from disk) and stored as a *parsed dict* so that future reads can
     do key-level manipulation without regex.
-
-    Only non-``None`` values are written; existing fields not supplied are
-    retained so callers can update just the CI YAML (e.g. after
-    self-healing) without clobbering the Dockerfile.
     """
     key = _template_key(language, platform)
     entry = _read_manifest(key)
@@ -287,10 +340,10 @@ def save_template(
         else:
             # Fall back to storing the raw string if parsing fails.
             entry["ci_yaml"] = ci_yaml
-    if dockerfile is not None:
-        entry["dockerfile"] = dockerfile
-    if docker_compose is not None:
-        entry["docker_compose"] = docker_compose
+    # Docker files are now handled by dockerfile_templates.py — strip
+    # any legacy fields that may be present.
+    entry.pop("dockerfile", None)
+    entry.pop("docker_compose", None)
     _write_manifest(key, entry)
 
 
@@ -346,8 +399,6 @@ def list_templates() -> list[dict[str, object]]:
                 {
                     "key": p.stem,
                     "has_ci": "ci_yaml" in data,
-                    "has_dockerfile": "dockerfile" in data,
-                    "has_compose": "docker_compose" in data,
                 }
             )
         except Exception:

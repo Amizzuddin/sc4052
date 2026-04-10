@@ -5,7 +5,7 @@
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Friday April 10th 2026 3:44:16 am                            #
+#  Last Modified: Friday April 10th 2026 6:14:18 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -63,7 +63,8 @@ from ai_handler import (
 )
 from dash import Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
-from docker_handler import DEFAULT_DOCKER_BASE_IMAGE, _generate_compose, _generate_dockerfile
+from docker_handler import DEFAULT_DOCKER_BASE_IMAGE
+from dockerfile_templates import build_compose, build_dockerfile
 from generator import SUPPORTED_PLATFORMS, SUPPORTED_PROVIDERS, generate_pipeline
 from git_handler import (
     _cleanup,
@@ -1322,13 +1323,13 @@ def generate_pipeline_cb(
         raw_lang = scan.get("languages") or ([scan.get("language")] if scan.get("language") else [])
         docker_langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
         base_image = (docker_base_image or DEFAULT_DOCKER_BASE_IMAGE).strip()
-        dockerfile_content = _generate_dockerfile(docker_langs, base_image)
+        dockerfile_content = build_dockerfile(docker_langs, scan, base_image=base_image)
         extra_files["Dockerfile"] = dockerfile_content
         if wants_compose:
             # Derive repo name from URL (not temp dir) so compose image matches CI push target
             _url_path = repo_url.rstrip("/").rsplit("/", 1)[-1]
             image_name = re.sub(r"\.git$", "", _url_path) or scan.get("repo_name") or "app"
-            compose_content = _generate_compose(image_name, docker_langs, docker_push=wants_docker_push)
+            compose_content = build_compose(image_name, docker_langs, docker_push=wants_docker_push)
             extra_files["docker-compose.yml"] = compose_content
             if wants_docker_push:
                 extra_files[".env"] = (
@@ -1338,18 +1339,8 @@ def generate_pipeline_cb(
                     "#   docker compose up     → runs the pulled image\n"
                     "DOCKER_USERNAME=your-dockerhub-username\n"
                 )
-        # Save Docker files to template cache
-        try:
-            from template_store import save_template
-
-            save_template(
-                docker_langs,
-                platform,
-                dockerfile=dockerfile_content,
-                docker_compose=compose_content,
-            )
-        except Exception:
-            pass  # template caching is best-effort
+        # Docker-file templates are handled by dockerfile_templates.py
+        # (no need to save to CI template cache)
 
     extras_parts = []
     if wants_docker:

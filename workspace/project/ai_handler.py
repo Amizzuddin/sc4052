@@ -1,11 +1,41 @@
 ################################################################################
 #  Filename:      project/ai_handler.py                                        #
 #  Project:       SC4079 Cloud Computing                                       #
+#  Created Date:  Monday, April 6th 2026, 7:25:01 am                           #
+#  Author:        Amizzuddin Amin Chan                                         #
+#  Description:   <<ADD Description>>                                          #
+#  --------------------------------------------------------------------------- #
+#  Last Modified: Friday April 10th 2026 6:14:21 am                            #
+#  Modified By:   Amizzuddin Amin Chan                                         #
+#  --------------------------------------------------------------------------- #
+#  HISTORY:                                                                    #
+#  Date         By    Comments                                                 #
+#  ----------   ---   -------------------------------------------------------- #
+################################################################################
+
+################################################################################
+#  Filename:      project/ai_handler.py                                        #
+#  Project:       SC4079 Cloud Computing                                       #
+#  Created Date:  Monday, April 6th 2026, 7:25:01 am                           #
+#  Author:        Amizzuddin Amin Chan                                         #
+#  Description:   <<ADD Description>>                                          #
+#  --------------------------------------------------------------------------- #
+#  Last Modified: Friday April 10th 2026 6:14:19 am                            #
+#  Modified By:   Amizzuddin Amin Chan                                         #
+#  --------------------------------------------------------------------------- #
+#  HISTORY:                                                                    #
+#  Date         By    Comments                                                 #
+#  ----------   ---   -------------------------------------------------------- #
+################################################################################
+
+################################################################################
+#  Filename:      project/ai_handler.py                                        #
+#  Project:       SC4079 Cloud Computing                                       #
 #  Created Date:  Saturday, April 4th 2026, 10:04:55 am                        #
 #  Author:        Amizzuddin Amin Chan                                         #
 #  Description:   <<ADD Description>>                                          #
 #  --------------------------------------------------------------------------- #
-#  Last Modified: Thursday April 9th 2026 3:20:45 pm                           #
+#  Last Modified: Friday April 10th 2026 6:14:14 am                            #
 #  Modified By:   Amizzuddin Amin Chan                                         #
 #  --------------------------------------------------------------------------- #
 #  HISTORY:                                                                    #
@@ -702,21 +732,16 @@ def _watch_ci_and_heal(
                 raw_lang = scan.get("languages") or scan.get("language")
                 langs = raw_lang if isinstance(raw_lang, list) else ([raw_lang] if raw_lang else [])
                 working_yaml = ""
-                working_dockerfile = None
                 for pat in ("ci.yml", "*.yml"):
                     yp = next(Path(clone_path).rglob(pat), None)
                     if yp:
                         working_yaml = yp.read_text()
                         break
-                df_p = Path(clone_path) / "Dockerfile"
-                if df_p.exists():
-                    working_dockerfile = df_p.read_text()
                 if working_yaml:
                     save_template(
                         langs,
                         platform,
                         ci_yaml=working_yaml,
-                        dockerfile=working_dockerfile,
                     )
                     _log("📋 Template updated with working CI config.")
             except Exception:
