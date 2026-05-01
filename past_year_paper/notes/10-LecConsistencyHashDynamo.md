@@ -17,14 +17,14 @@ This lecture covers two core ideas for cloud-scale storage systems:
 
 ## 3. Hashing for Partitioning
 ### 3.1 Modulo hashing (baseline)
-Mapping: `node = hash(key) mod k`
+Mapping: $\text{node} = \text{hash}(\text{key}) \bmod k$
 
 Issue:
-- If `k` changes (node join/failure), many keys remap globally.
+- If $k$ changes (node join/failure), many keys remap globally.
 - Causes large data movement and instability.
 
 ### 3.2 Consistent hashing (improvement)
-- Map both nodes and keys to a ring over ID space `0 .. 2^m - 1`.
+- Map both nodes and keys to a ring over ID space $[0,\; 2^m - 1]$.
 - Store each key at its first clockwise successor node.
 
 Benefits:
@@ -46,8 +46,8 @@ Benefits:
 
 ## 5. Key-Value Store Perspective
 Interface:
-- `put(key, value)`
-- `get(key)`
+- $\text{put}(\text{key},\, \text{value})$
+- $\text{get}(\text{key})$
 
 Typical examples:
 - E-commerce user/session/product data
@@ -68,19 +68,19 @@ Core challenges:
 
 ## 7. Quorum-Based Replication (High-Yield)
 Let:
-- `N` = replication factor (replicas per key)
-- `W` = write quorum (acks needed)
-- `R` = read quorum (responses needed)
+- $N$ = replication factor (replicas per key)
+- $W$ = write quorum (acks needed)
+- $R$ = read quorum (responses needed)
 
 Key condition for overlap:
 
-`W + R > N`
+$$W + R > N$$
 
 Interpretation:
 - Read and write quorums intersect at least one replica, improving read freshness probability.
 
 Example from lecture style:
-- `N=3, W=2, R=2` satisfies overlap.
+- $N=3, W=2, R=2$ satisfies overlap.
 
 ## 8. Consistency Challenges in Replicated Systems
 | Scenario | Risk |
@@ -111,22 +111,22 @@ Dynamo prioritizes:
 | Membership/failure detection | Gossip protocol | Decentralized liveness and membership updates |
 
 ## 11. Dynamo Interface and Semantics
-- `get(key) -> value(s), context`
-- `put(key, context, value) -> OK`
+- $\text{get}(\text{key}) \to \text{value(s)},\, \text{context}$
+- $\text{put}(\text{key},\, \text{context},\, \text{value}) \to \text{OK}$
 
 Notes:
-- `get` may return multiple conflicting versions.
-- `context` carries version metadata (for causality/merge handling).
+- $\text{get}$ may return multiple conflicting versions.
+- $\text{context}$ carries version metadata (for causality/merge handling).
 - “Always writeable” emphasis shifts conflict resolution to later stages (often read path/application logic).
 
 ## 12. Lookup and Stabilization in Ring-Based Systems
 Decentralized lookup service goals:
-- Each node stores routing info about only `O(log M)` nodes (M = total nodes).
-- Route lookup in `O(log M)` hops.
+- Each node stores routing info about only $O(\log M)$ nodes (M = total nodes).
+- Route lookup in $O(\log M)$ hops.
 
 Stabilization ideas:
-- Periodic `stabilize()` and `notify()` maintain successor/predecessor correctness after joins/leaves.
-- Maintain multiple successors (`k > 1`) for robustness.
+- Periodic $\texttt{stabilize()}$ and $\texttt{notify()}$ maintain successor/predecessor correctness after joins/leaves.
+- Maintain multiple successors ($k > 1$) for robustness.
 
 ## 13. Failure Handling Summary
 | Failure type | Typical handling |
@@ -148,16 +148,16 @@ Dynamo chooses:
 ## 15. Formula and Concept Sheet
 | Item | Expression / Rule |
 |---|---|
-| Datacenter failure likelihood over period | `1 - (1 - p)^n` |
-| Quorum overlap condition | `W + R > N` |
-| Consistent hashing placement | key -> first clockwise successor |
-| Routing complexity target (ring overlays) | `O(log M)` state and lookup hops |
+| Datacenter failure likelihood over period | $1 - (1-p)^n$ |
+| Quorum overlap condition | $$W + R > N$$ |
+| Consistent hashing placement | key $\to$ first clockwise successor |
+| Routing complexity target (ring overlays) | $O(\log M)$ state and lookup hops |
 
 ## 16. Must-Memorize Points
 1. Modulo hashing remaps too much when cluster size changes; consistent hashing minimizes remapping.
 2. Virtual nodes are critical for load balance and heterogeneous capacity.
 3. Dynamo is designed for availability and low latency first, with eventual consistency.
-4. Quorum reads/writes use `N, W, R` and overlap condition `W + R > N`.
+4. Quorum reads/writes use $N, W, R$ and overlap condition $W + R > N$.
 5. Vector clocks track version causality; conflicts are expected and reconciled.
 6. Gossip, hinted handoff, and Merkle-tree anti-entropy are core Dynamo reliability mechanisms.
 7. Decentralized design avoids central bottlenecks and supports incremental scale.

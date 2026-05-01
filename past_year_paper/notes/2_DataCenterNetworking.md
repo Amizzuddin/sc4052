@@ -70,23 +70,23 @@ Why layering matters:
 | Multiplicative decrease | On congestion signal, reduce `cwnd` significantly (often by half) |
 
 ### AIMD formulas (exam-focused)
-Let `W` be congestion window in MSS units.
+Let $W$ be the congestion window in MSS units.
 
 | Case | Formula | Notes |
 |---|---|---|
-| Additive increase (per RTT) | `W_{t+1} = W_t + alpha` | Classical TCP Reno congestion avoidance uses `alpha = 1` MSS/RTT |
-| Multiplicative decrease (on congestion event) | `W <- beta W` | Classical Reno often uses `beta = 1/2` |
-| Sawtooth average window | `W_avg approximately (W_max + W_max/2)/2 = 3W_max/4` | For `beta = 1/2` |
+| Additive increase (per RTT) | $W_{t+1} = W_t + \alpha$ | Classical TCP Reno congestion avoidance uses $\alpha = 1$ MSS/RTT |
+| Multiplicative decrease (on congestion event) | $W \leftarrow \beta W$ | Classical Reno often uses $\beta = 1/2$ |
+| Sawtooth average window | $W_{\text{avg}} \approx \frac{W_{\text{max}} + W_{\text{max}}/2}{2} = \frac{3W_{\text{max}}}{4}$ | For $\beta = 1/2$ |
 
 Generalized AIMD (often seen in tutorials):
-- Flow `i`: `W_i(k+1) = beta_i W_i(k) + (alpha_i / sum_j alpha_j) * sum_j ((1-beta_j)W_j(k))`
-- Steady-state fairness direction: `W_i* proportional alpha_i / (1-beta_i)`
-- If all flows use `alpha_i = 1, beta_i = 1/2`, then fair equilibrium is equal windows.
+- Flow $i$: $W_i(k+1) = \beta_i W_i(k) + \dfrac{\alpha_i}{\sum_j \alpha_j} \sum_j \bigl(1-\beta_j\bigr)W_j(k)$
+- Steady-state fairness direction: $W_i^* \propto \dfrac{\alpha_i}{1-\beta_i}$
+- If all flows use $\alpha_i = 1,\; \beta_i = 1/2$, then fair equilibrium is equal windows.
 
 Worked mini example:
-- Start `W = 10` MSS, `alpha = 1`, `beta = 1/2`
-- After 3 RTTs without congestion: `W = 13`
-- Congestion occurs: `W <- 13/2 = 6.5` MSS (implementation rounds by stack rules)
+- Start $W = 10$ MSS, $\alpha = 1$, $\beta = 1/2$
+- After 3 RTTs without congestion: $W = 13$
+- Congestion occurs: $W \leftarrow 13/2 = 6.5$ MSS (implementation rounds by stack rules)
 
 Important caveat from lecture:
 - Packet drops/duplicate ACKs are imperfect congestion signals in some environments (e.g., wireless/path changes).
@@ -117,43 +117,43 @@ Key design principles repeatedly emphasized:
 ### 8.2 Fat-tree formulas (k-port switch)
 | Quantity | Formula |
 |---|---|
-| Number of pods | `k` |
-| Core switches | `(k/2)^2` |
-| Hosts per edge switch | `k/2` |
-| Total supported hosts | `k^3/4` |
-| Approx. total switches | `5k^2/4` |
+| Number of pods | $k$ |
+| Core switches | $(k/2)^2$ |
+| Hosts per edge switch | $k/2$ |
+| Total supported hosts | $k^3/4$ |
+| Approx. total switches | $5k^2/4$ |
 
 Derivation details (for exam proofs):
-- Assume `k` is even and every switch has `k` ports.
+- Assume $k$ is even and every switch has $k$ ports.
 - Per pod:
-	- Edge switches = `k/2`
-	- Aggregation switches = `k/2`
-	- Hosts per edge = `k/2`
-	- Hosts per pod = `(k/2) * (k/2) = k^2/4`
-- Total hosts across `k` pods:
-	- `N_hosts = k * (k^2/4) = k^3/4`
+	- Edge switches = $k/2$
+	- Aggregation switches = $k/2$
+	- Hosts per edge = $k/2$
+	- Hosts per pod = $(k/2) \times (k/2) = k^2/4$
+- Total hosts across $k$ pods:
+	- $N_{\text{hosts}} = k \times (k^2/4) = k^3/4$
 - Core switches:
-	- `N_core = (k/2)^2 = k^2/4`
+	- $N_{\text{core}} = (k/2)^2 = k^2/4$
 - Total switches:
-	- Pod switches = `k * (k/2 + k/2) = k^2`
-	- `N_total = k^2 + k^2/4 = 5k^2/4`
+	- Pod switches = $k \times (k/2 + k/2) = k^2$
+- $N_{\text{total}} = k^2 + k^2/4 = 5k^2/4$
 
 Useful link-count formulas:
-- Edge-aggregation links per pod: `(k/2)*(k/2) = k^2/4`
-- Total edge-aggregation links: `k * (k^2/4) = k^3/4`
-- Total aggregation-core links: also `k^3/4`
+- Edge-aggregation links per pod: $(k/2) \times (k/2) = k^2/4$
+- Total edge-aggregation links: $k \times (k^2/4) = k^3/4$
+- Total aggregation-core links: also $k^3/4$
 
 Example cited in lecture context:
 - 48-port 1GigE fat-tree can scale to around 27,648 hosts using around 2,880 switches.
 
-Worked example (`k = 8`):
-- Pods = `8`
-- Edge per pod = `4`, Aggregation per pod = `4`
-- Hosts per edge = `4`
-- Hosts per pod = `4*4 = 16`
-- Total hosts = `8*16 = 128` (matches `k^3/4 = 8^3/4 = 128`)
-- Core switches = `(8/2)^2 = 16`
-- Total switches = `5*8^2/4 = 80`
+Worked example ($k = 8$):
+- Pods = $8$
+- Edge per pod = $4$, Aggregation per pod = $4$
+- Hosts per edge = $4$
+- Hosts per pod = $4 \times 4 = 16$
+- Total hosts = $8 \times 16 = 128$ (matches $k^3/4 = 8^3/4 = 128$)
+- Core switches = $(8/2)^2 = 16$
+- Total switches = $5 \times 8^2/4 = 80$
 
 ### 8.3 Non-blocking concept
 | Term | Meaning |
@@ -165,26 +165,26 @@ Worked example (`k = 8`):
 ![Fat-Tree Construction Example (k=4)](fat_tree_k4.jpg)
 
 Construction recipe:
-1. Choose even `k`.
-2. Create `k` pods.
-3. In each pod, place `k/2` edge and `k/2` aggregation switches.
+1. Choose even $k$.
+2. Create $k$ pods.
+3. In each pod, place $k/2$ edge and $k/2$ aggregation switches.
 4. Connect each edge switch to all aggregation switches in the same pod.
-5. Connect each edge switch's remaining `k/2` ports to hosts.
-6. Create `(k/2)^2` core switches, arranged as `k/2` groups of `k/2`.
-7. Connect each aggregation switch to one core switch in each core group (so each aggregation has `k/2` uplinks).
+5. Connect each edge switch's remaining $k/2$ ports to hosts.
+6. Create $(k/2)^2$ core switches, arranged as $k/2$ groups of $k/2$.
+7. Connect each aggregation switch to one core switch in each core group (so each aggregation has $k/2$ uplinks).
 
-Small construction example (`k = 4`):
+Small construction example ($k = 4$):
 - Pods: 4
 - Per pod: 2 edge + 2 aggregation
-- Core: `(4/2)^2 = 4`
-- Hosts per edge: `2`, total hosts `= 4^3/4 = 16`
+- Core: $(4/2)^2 = 4$
+- Hosts per edge: $2$, total hosts $= 4^3/4 = 16$
 - Wiring intuition:
 	- Inside each pod: full bipartite connection between 2 edge and 2 aggregation switches.
 	- Across pods: each aggregation switch uses 2 uplinks, each to a different core group.
 	- Each core switch has one downlink into each pod.
 
 Exam check rule:
-- If your constructed topology does not satisfy `hosts = k^3/4` and `core = (k/2)^2`, re-check pod and core-group wiring.
+- If your constructed topology does not satisfy $\text{hosts} = k^3/4$ and $\text{core} = (k/2)^2$, re-check pod and core-group wiring.
 
 ## 9. Traffic Characteristics in Data Centers
 | Observation | Why It Matters |
@@ -230,6 +230,6 @@ DCTCP is introduced to handle the DC tension between:
 2. IP is best-effort; TCP adds reliability and congestion/flow control.
 3. AIMD: increase gradually, decrease sharply on congestion.
 4. Clos/fat-tree solves scale and bandwidth limits of classic hierarchical DCNs.
-5. Fat-tree with k-port switches supports `k^3/4` hosts.
+5. Fat-tree with k-port switches supports $k^3/4$ hosts.
 6. Data center traffic has many mice flows and fewer elephant flows; engineering must handle both.
 7. DCTCP uses ECN feedback to maintain low queues and high throughput in data centers.

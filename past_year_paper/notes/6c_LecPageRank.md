@@ -20,24 +20,24 @@ Key intuition:
 ## 3. Graph Model
 Represent the web as directed graph:
 - Node = page
-- Directed edge `j -> i` = page `j` links to page `i`
+- Directed edge $j \to i$ means page $j$ links to page $i$
 
 Notation used in lecture:
-- `B_i`: set of backlinks to page `i`
-- `d_j`: out-degree (number of outgoing links) of page `j`
-- `r_i` or `v_i`: PageRank score of node `i`
+- $B_i$: set of backlinks to page $i$
+- $d_j$: out-degree (number of outgoing links) of page $j$
+- $r_i$ or $v_i$: PageRank score of node $i$
 
 ## 4. Simplified PageRank Equation
 Core recursive form:
 
-`r_i = sum_{j: j->i} r_j / d_j`
+$$r_i = \sum_{j:\, j \to i} \frac{r_j}{d_j}$$
 
 With normalization constraint for uniqueness:
 
-`sum_i r_i = 1`
+$$\sum_i r_i = 1$$
 
 Interpretation:
-- Page `i` receives rank mass from pages linking to it.
+- Page $i$ receives rank mass from pages linking to it.
 - Each source page splits its mass equally among its outgoing links.
 
 ## 5. Random Surfer Interpretation
@@ -49,17 +49,17 @@ Process:
 3. Repeat many times; distribution converges to stationary probabilities.
 
 ## 6. Matrix Form and Iteration
-Let `M` be transition matrix, where:
-- `M_ij = 1/d_j` if `j -> i`, else `0`
+Let $M$ be the transition matrix, where:
+- $M_{ij} = 1/d_j$ if $j \to i$, else $0$
 - Columns sum to 1 for column-stochastic form.
 
 Iterative update:
 
-`v_(t+1) = M v_t`
+$$\mathbf{v}_{t+1} = M\,\mathbf{v}_t$$
 
 Stop criterion:
 
-`||v_t - v_(t-1)|| <= epsilon`
+$$\|\mathbf{v}_t - \mathbf{v}_{t-1}\| \leq \varepsilon$$
 
 Power iteration is the scalable computation method for large graphs.
 
@@ -71,16 +71,16 @@ Power iteration is the scalable computation method for large graphs.
 | Pure link-following only | May not mix fast enough and can produce biased concentration |
 
 ## 8. Teleportation / Damping (Modified PageRank)
-Use damping factor `d` and teleport distribution (often uniform):
+Use damping factor $d$ and teleport distribution (often uniform):
 
-`v = d M v + (1-d) * (1/n) * 1`
+$$\mathbf{v} = d\,M\,\mathbf{v} + (1-d)\,\frac{1}{n}\,\mathbf{1}$$
 
 Equivalent random-surfer behavior:
-- With probability `d`, follow a link.
-- With probability `1-d`, jump to random page.
+- With probability $d$, follow a link.
+- With probability $1-d$, jump to random page.
 
 Typical values from lecture context:
-- `d` in range about `0.8` to `0.9` (commonly around `0.85`).
+- $d$ is in range about $0.8$ to $0.9$ (commonly around $0.85$).
 
 Benefits:
 - Handles spider traps.
@@ -96,11 +96,11 @@ Benefits:
 ## 10. Worked Micro Example Pattern (How to Solve in Tutorials)
 Given a small graph:
 1. Build adjacency and out-degree table.
-2. Construct transition matrix `M`.
-3. Initialize `v_0 = (1/n) * 1`.
-4. If damping is required, iterate using `v_(t+1) = d M v_t + (1-d)(1/n)1`.
+2. Construct transition matrix $M$.
+3. Initialize $\mathbf{v}_0 = (1/n)\,\mathbf{1}$.
+4. If damping is required, iterate using $\mathbf{v}_{t+1} = d\,M\,\mathbf{v}_t + (1-d)\frac{1}{n}\mathbf{1}$.
 5. Continue until convergence threshold or fixed iteration count.
-6. Rank pages by final `v` entries.
+6. Rank pages by final $\mathbf{v}$ entries.
 
 ## 11. Convergence and Scalability
 | Property | Notes |
@@ -130,11 +130,11 @@ Takeaway:
 ## 14. Formula Sheet (Exam-Ready)
 | Topic | Formula |
 |---|---|
-| Simplified PageRank | `r_i = sum_{j: j->i} r_j / d_j` |
-| Normalization | `sum_i r_i = 1` |
-| Basic iteration | `v_(t+1) = M v_t` |
-| Damped PageRank | `v = d M v + (1-d) * (1/n) * 1` |
-| Convergence check | `||v_t - v_(t-1)|| <= epsilon` |
+| Simplified PageRank | $$r_i = \sum_{j:\, j \to i} \frac{r_j}{d_j}$$ |
+| Normalization | $$\sum_i r_i = 1$$ |
+| Basic iteration | $$\mathbf{v}_{t+1} = M\,\mathbf{v}_t$$ |
+| Damped PageRank | $$\mathbf{v} = d\,M\,\mathbf{v} + (1-d)\,\frac{1}{n}\,\mathbf{1}$$ |
+| Convergence check | $$\|\mathbf{v}_t - \mathbf{v}_{t-1}\| \leq \varepsilon$$ |
 
 ## 15. Must-Memorize Points
 1. PageRank is recursive importance propagation over directed links.

@@ -11,6 +11,7 @@ repos:
       - id: check-json
         exclude: ".vscode|devcontainer.json"
       - id: check-added-large-files
+        args: ["--maxkb=2000"]
       - id: debug-statements
       - id: requirements-txt-fixer
   - repo: https://github.com/pycqa/isort

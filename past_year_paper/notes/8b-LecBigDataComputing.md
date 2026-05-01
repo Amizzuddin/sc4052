@@ -35,15 +35,15 @@ Key storage principle:
 MapReduce is a data-parallel model for scalable, fault-tolerant batch processing.
 
 Core abstractions:
-- `map(k, v) -> list(k2, v2)`
-- `reduce(k2, list(v2)) -> list(k3, v3)`
+- $\text{map}(k, v) \to \text{list}(k_2, v_2)$
+- $\text{reduce}(k_2, \text{list}(v_2)) \to \text{list}(k_3, v_3)$
 
 Execution pipeline:
-1. Split input into `M` shards
+1. Split input into $M$ shards
 2. Run map tasks in parallel
 3. Shuffle/sort intermediate pairs by key
-4. Run `R` reduce tasks
-5. Write outputs (`R` output files)
+4. Run $R$ reduce tasks
+5. Write outputs ($R$ output files)
 
 ## 5. Design Goals (Exam Table)
 | Goal | How achieved |
@@ -65,11 +65,11 @@ Execution pipeline:
 ## 7. Key Execution Parameters
 | Parameter | Meaning | Rule of thumb |
 |---|---|---|
-| `M` | Number of map tasks | Choose `M` much larger than worker count |
-| `R` | Number of reduce tasks | Usually smaller than `M` |
+| $M$ | Number of map tasks | Choose $M$ much larger than worker count |
+| $R$ | Number of reduce tasks | Usually smaller than $M$ |
 | Input split size | Per-map data chunk | Often aligned with DFS chunks |
 
-Why `M >> workers`:
+Why $M \gg \text{workers}$:
 - Better dynamic load balancing
 - Faster recovery from worker failure
 
@@ -92,10 +92,10 @@ Straggler mitigation:
 
 ## 10. Canonical Example: Word Count
 ### Map
-For each word `w` in input record, emit `(w, 1)`.
+For each word $w$ in the input record, emit $(w, 1)$.
 
 ### Reduce
-For each key `w`, sum all counts and emit `(w, total)`.
+For each key $w$, sum all counts and emit $(w, \text{total})$.
 
 Why this is ideal for MapReduce:
 - Embarrassingly parallel map stage
@@ -111,12 +111,12 @@ Why this is ideal for MapReduce:
 - Repeat until convergence threshold.
 
 ### Step 3: Sort by final rank
-- Emit `(PageRank, URL)` and leverage framework sorting.
+- Emit $(\text{PageRank}, \text{URL})$ and leverage framework sorting.
 
 ## 12. PageRank Formula Context
 Simplified rank propagation concept:
 
-`R(u) proportional sum_{v in backlinks(u)} R(v) / outdeg(v)`
+$$R(u) \propto \sum_{v \in \text{backlinks}(u)} \frac{R(v)}{\text{outdeg}(v)}$$
 
 Practical implementations use iterative updates and convergence checks (not exact one-shot solve at web scale).
 

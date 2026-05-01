@@ -52,15 +52,15 @@ Exam insight:
 | Typical use | Fast bulk-data encryption |
 
 ### 5.1 Diffie-Hellman Key Exchange (for key agreement)
-Public parameters: prime `p`, generator `g`.
-- Alice picks secret `a`, sends `A = g^a mod p`
-- Bob picks secret `b`, sends `B = g^b mod p`
-- Alice computes `s = B^a mod p`
-- Bob computes `s = A^b mod p`
-- Both get same shared secret: `s = g^(ab) mod p`
+Public parameters: prime $p$, generator $g$.
+- Alice picks secret $a$, sends $A = g^a \bmod p$
+- Bob picks secret $b$, sends $B = g^b \bmod p$
+- Alice computes $s = B^a \bmod p$
+- Bob computes $s = A^b \bmod p$
+- Both get same shared secret: $s = g^{ab} \bmod p$
 
 Security intuition:
-- Attacker sees `p, g, A, B`, but recovering `a` or `b` is hard for large parameters (discrete log hardness).
+- Attacker sees $p, g, A, B$, but recovering $a$ or $b$ is hard for large parameters (discrete log hardness).
 
 ### 5.2 DES (historical block cipher)
 | Item | Value |
@@ -77,22 +77,22 @@ Security intuition:
 | Requirement | Hard to derive private key from public key |
 
 ## 7. RSA (Lecture Focus)
-RSA relies on difficulty of factoring a large composite number `N = P*Q`.
+RSA relies on difficulty of factoring a large composite number $N = P \cdot Q$.
 
 ### 7.1 Key Generation (as presented)
-1. Choose primes `P, Q`
-2. Compute `N = P*Q`
-3. Compute `phi(N) = (P-1)(Q-1)`
-4. Choose public exponent `E` with `gcd(E, phi(N)) = 1`
-5. Choose private exponent `D` such that:
+1. Choose primes $P, Q$
+2. Compute $N = P \cdot Q$
+3. Compute $\phi(N) = (P-1)(Q-1)$
+4. Choose public exponent $E$ with $\gcd(E, \phi(N)) = 1$
+5. Choose private exponent $D$ such that:
 
-`(D*E) mod phi(N) = 1`
+$$D \cdot E \equiv 1 \pmod{\phi(N)}$$
 
 ### 7.2 RSA En/Decryption Equations
 | Operation | Formula |
 |---|---|
-| Encryption | `CT = PT^E mod N` |
-| Decryption | `PT = CT^D mod N` |
+| Encryption | $CT = PT^E \bmod N$ |
+| Decryption | $PT = CT^D \bmod N$ |
 
 ## 8. Digital Signatures and Non-Repudiation
 To prove origin/ownership of a message:
