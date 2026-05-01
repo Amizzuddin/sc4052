@@ -53,27 +53,9 @@ The hypervisor traps and emulates every privileged instruction issued by the unm
 
 #### Topology Diagram
 
-```
-Inputs         Stage 1          Stage 2          Stage 3        Outputs
-              (3×5)            (4×4)            (5×3)
+![3-stage Close network diagram (N=12, n=3, k=5, m=4)](close_topology_2024.jpg)
 
-In 1 ─┐                                                       ┌─ Out 1
-In 2 ─┤── S1₁ ─────────────── M₁ ───────────── S3₁ ──────────┤─ Out 2
-In 3 ─┘    │                   │                 │             └─ Out 3
-            │                   │                 │
-In 4 ─┐    │               M₂  │             S3₂ │            ┌─ Out 4
-In 5 ─┤── S1₂ ─────────────── M₂ ───────────── S3₂ ──────────┤─ Out 5
-In 6 ─┘    │                   │                 │             └─ Out 6
-            │                   │                 │
-In 7 ─┐    │               M₃  │             S3₃ │            ┌─ Out 7
-In 8 ─┤── S1₃ ─────────────── M₃ ───────────── S3₃ ──────────┤─ Out 8
-In 9 ─┘    │                   │                 │             └─ Out 9
-            │                   │                 │
-In10 ─┐    │               M₄  │             S3₄ │            ┌─ Out 10
-In11 ─┤── S1₄ ─────────────── M₄ ───────────── S3₄ ──────────┤─ Out 11
-In12 ─┘    │                   │                 │             └─ Out 12
-            └────────── M₅ ────┘─────────────────┘
-```
+Figure: Equivalent 3-stage Close topology view used to illustrate multi-stage switching and path diversity.
 
 Each of the 4 Stage-1 switches connects to **all 5** middle switches (one link each). Each of the 5 middle switches connects to **all 4** Stage-3 switches.
 

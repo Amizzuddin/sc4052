@@ -67,22 +67,11 @@ So the topology is:
 - **Stage 2:** $k=6$ switches, each of size $m \times m = 4 \times 4$
 - **Stage 3:** $r=4$ switches, each of size $k \times n = 6 \times 4$
 
-#### One valid drawing (ASCII)
+#### One valid drawing
 
-```text
-Inputs            Stage 1             Stage 2               Stage 3            Outputs
-                4 switches           6 switches            4 switches
-                (4 x 6)               (4 x 4)               (6 x 4)
+![3-stage Close network diagram (N=16, n=4, k=6, m=4)](close_topology_2023.jpg)
 
-I1..I4   ->      A1  ---\
-I5..I8   ->      A2  ----\
-I9..I12  ->      A3  ----- M1 ----\
-I13..I16 ->      A4  ----- M2 -----\
-                           ...       >---- B1 -> O1..O4
-                           M6 -----/ >---- B2 -> O5..O8
-A1,A2,A3,A4 each connect           / >---- B3 -> O9..O12
-once to every middle switch       /  >---- B4 -> O13..O16
-```
+Figure: 3-stage Close topology for the parameters in Question 1(b).
 
 Each first-stage switch has 4 inputs and 6 outputs, one to each middle switch. Each middle switch has 4 inputs from the 4 first-stage switches and 4 outputs to the 4 third-stage switches.
 
