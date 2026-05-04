@@ -17,12 +17,13 @@ The hypervisor traps and emulates every privileged instruction issued by the unm
 | Better I/O performance | PV drivers use shared-memory interfaces, avoiding emulated device overhead. |
 | Lower hypervisor complexity | The hypervisor does not need to maintain a full hardware emulation layer. |
 
-**Disadvantages of Para-Virtualization over Full Virtualization**
+#### Disadvantages of Para-Virtualization over Full Virtualization
+
 | Disadvantage | Explanation |
-|---|---|
-| Requires guest OS modification | The guest kernel must be ported to call the hypervisor API (e.g., Xen hypercalls). Proprietary OSes (e.g., unmodified Windows) cannot be used. |
-| Higher porting/maintenance effort | Every supported OS version needs its own set of PV drivers. |
-| Less hardware portability | PV guests are tied to the specific hypervisor ABI. |
+|:--|:--|
+| Requires guest OS modification | The guest kernel must be ported to call the hypervisor API (for example Xen hypercalls). Proprietary or closed guest OS images are often difficult or impossible to modify. |
+| Higher porting and maintenance effort | Each supported OS family and version needs compatible PV interfaces or drivers, increasing engineering and testing work. |
+| Reduced portability across platforms | PV guests are coupled to a specific hypervisor ABI, which limits straightforward migration between different virtualization stacks. |
 
 #### Hardware-Assisted Virtualization — Advantages over Full Virtualization
 | Advantage | Explanation |
@@ -32,11 +33,12 @@ The hypervisor traps and emulates every privileged instruction issued by the unm
 | Best practical performance | Hardware handles context switching between guest and hypervisor, dramatically reducing overhead. |
 | Hardware-enforced isolation | Memory and I/O protection (EPT/SLAT, IOMMU) is managed by the CPU, improving security. |
 
-**Disadvantages of Hardware-Assisted Virtualization over Full Virtualization**
+#### Disadvantages of Hardware-Assisted Virtualization over Full Virtualization
+
 | Disadvantage | Explanation |
-|---|---|
-| Requires compatible hardware | Older CPUs without VT-x/AMD-V cannot use it; full virtualization works on any x86 CPU. |
-| Early implementations had VM-exit overhead | Some workloads with frequent privileged instruction calls can generate many VM exits, incurring context-switch cost (though this has improved greatly in modern CPUs). |
+|:--|:--|
+| Requires compatible hardware | Systems without Intel VT-x or AMD-V support cannot use hardware-assisted virtualization. |
+| VM-exit overhead in sensitive workloads | Frequent traps between guest and hypervisor can still add context-switch overhead for some instruction-heavy or I/O-heavy workloads, even though modern CPUs mitigate this significantly. |
 
 **Summary:** Para-virtualization trades OS compatibility for performance through software cooperation. Hardware-assisted virtualization achieves near-native performance without any OS modification, and is now the dominant approach in production data centres (e.g., AWS, Google Cloud, Azure all rely on HW-assisted VMs).
 
